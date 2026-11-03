@@ -1,0 +1,11 @@
+{
+  "name": "2D Animation Studio",
+  "short_name": "Animation Studio",
+  "description": "Offline-capable 2D drawing and animation editor",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#16191E",
+  "theme_color": "#16191E",
+  "icons": [{ "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
