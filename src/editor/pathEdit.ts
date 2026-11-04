@@ -23,7 +23,9 @@ export function brushSpine(brush: NonNullable<PathObject['brush']>): Segment[] {
   return s;
 }
 
+/** Null for objects without editable points, including compound paths (several outlines). */
 export function editablePath(o: SceneObject): EditablePath | null {
+  if (o.kind === 'path' && o.geometry.subpaths?.length) return null;
   if (o.kind === 'path' && o.brush) return { segments: brushSpine(o.brush), closed: false, source: 'brush' };
   if (o.kind === 'path') return { segments: o.geometry.segments, closed: o.geometry.closed, source: 'path' };
   if (o.kind === 'shape') return { ...shapeSegments(o.geometry), source: 'shape' };

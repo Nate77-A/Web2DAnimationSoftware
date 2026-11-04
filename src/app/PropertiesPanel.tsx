@@ -1,5 +1,5 @@
 // Context-sensitive properties: tool settings, single/multi object properties, or document + layer.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { FONT_FAMILIES } from '../domain/defaults';
 import { exposureAt, sampleObject } from '../domain/evaluator';
 import { applyVector, rotate, unionRects, transformMatrix, transformRect } from '../domain/math';
@@ -8,13 +8,14 @@ import type { BlendMode, Ease, Paint, SceneObject, Style, TextData } from '../do
 import { cmdAddKeyframe, cmdCreateTween, cmdRemoveKeyframe, arrange, flipSelection, goToFrame } from '../editor/actions';
 import { cachedLocalBounds, clearMeasureCache } from '../editor/renderer';
 import { commit, commitMerge, getState, setToolOptions, store, useApp, activeTool } from '../editor/state';
+import { combineSelection, combineTargets, COMBINE_OPS } from '../editor/combine';
 import { editablePath } from '../editor/pathEdit';
 import { enterPathEdit, exitPathEdit } from '../editor/pathEditTool';
 import { fitToStage, setZoom } from '../editor/Stage';
 import { setTool } from '../editor/tools';
 import { commands, formatKeys, FPS_HELP, setPref } from './commands';
 import { Check, Field, NumberField, PaintField, Seg } from './controls';
-import { Icon } from './icons';
+import { CombineIcon, Icon } from './icons';
 import { DocSizePopover } from './StageHeader';
 
 const BLEND_MODES: BlendMode[] = ['normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion'];
@@ -33,26 +34,56 @@ function fontAvailable(family: string): boolean {
   return ok;
 }
 
-function Section({ title, children, icon }: { title: string; children: React.ReactNode; icon?: string }) {
+// Collapsed sections are a per-viewer convenience, remembered in this browser across reloads.
+const COLLAPSED_KEY = 'studio.collapsedSections';
+function readCollapsed(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]') as string[]); } catch { return new Set(); }
+}
+function writeCollapsed(ids: Set<string>) {
+  try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...ids])); } catch { /* storage unavailable: state lasts this session */ }
+}
+
+/**
+ * A titled group in the panel. The header is a button that hides or shows the group's contents.
+ * `id` keys the remembered open/closed state; it defaults to the title, so pass one when the title changes.
+ */
+function Section({ title, children, icon, id }: { title: string; children: React.ReactNode; icon?: string; id?: string }) {
+  const key = id ?? title;
+  const [collapsed, setCollapsed] = useState(() => readCollapsed().has(key));
+  const bodyId = useId();
+  const toggle = () => {
+    const ids = readCollapsed();
+    if (collapsed) ids.delete(key); else ids.add(key);
+    writeCollapsed(ids);
+    setCollapsed(!collapsed);
+  };
   return (
-    <section className="section" aria-label={title}>
-      <h3>{icon && <Icon name={icon} size={14} />}{title}</h3>
-      {children}
+    <section className={`section${collapsed ? ' collapsed' : ''}`} aria-label={title}>
+      <h3>
+        <button type="button" className="section-toggle" aria-expanded={!collapsed} aria-controls={bodyId} onClick={toggle}
+          data-tip={collapsed ? `Show ${title}` : `Hide ${title}`}
+          data-tip-desc={collapsed ? 'Expand this section to see its settings.' : 'Collapse this section to save space. Click again to bring it back.'}>
+          {icon && <Icon name={icon} size={14} />}
+          <span className="section-title">{title}</span>
+          <Icon name={collapsed ? 'chevronRight' : 'chevronDown'} size={14} />
+        </button>
+      </h3>
+      {!collapsed && <div className="section-body" id={bodyId}>{children}</div>}
     </section>
   );
 }
 
 // ------------------------------------------------------------------ style editors
 
-function StyleEditor({ style, onChange, closed, showFill = true, title = 'Appearance' }: {
+function StyleEditor({ style, onChange, closed, showFill = true, title = 'Appearance', id = 'appearance' }: {
   style: Pick<Style, 'fill' | 'stroke' | 'strokeWidth' | 'cap' | 'join' | 'dash'> & Partial<Pick<Style, 'fillRule'>>;
-  onChange: (patch: Partial<Style>) => void; closed: boolean; showFill?: boolean; title?: string;
+  onChange: (patch: Partial<Style>) => void; closed: boolean; showFill?: boolean; title?: string; id?: string;
 }) {
   const dashStr = style.dash.join(' ');
   const [dash, setDash] = useState(dashStr);
   useEffect(() => setDash(dashStr), [dashStr]);
   return (
-    <Section title={title}>
+    <Section title={title} id={id}>
       {showFill && <PaintField label={closed ? 'Fill' : 'Fill (closed paths only)'} paint={style.fill} onChange={(fill) => onChange({ fill })} />}
       <PaintField label="Stroke" paint={style.stroke} onChange={(stroke) => onChange({ stroke })} />
       <div className="grid2">
@@ -180,7 +211,7 @@ function ToolSection() {
               {o.type === 'rect' && <NumberField label="Corner radius" scrubLabel="R" value={o.cornerRadius} min={0} max={5000} precision={0} unit="px" onChange={(cornerRadius) => setToolOptions('shape', { cornerRadius })} />}
             </div>
           </Section>
-          <StyleEditor title="New shape style" style={swatchStyle} onChange={setStyle} closed />
+          <StyleEditor title="New shape style" id="tool-style" style={swatchStyle} onChange={setStyle} closed />
         </>
       );
     }
@@ -191,7 +222,7 @@ function ToolSection() {
             <Check label="Show Bézier handles" checked={s.o.pen.showHandles} onChange={(showHandles) => setToolOptions('pen', { showHandles })} />
             <p className="hint">Fill is applied only when you close the path by clicking its first point.</p>
           </Section>
-          <StyleEditor title="New path style" style={swatchStyle} onChange={setStyle} closed />
+          <StyleEditor title="New path style" id="tool-style" style={swatchStyle} onChange={setStyle} closed />
         </>
       );
     case 'text':
@@ -223,7 +254,7 @@ function ToolSection() {
     case 'zoom':
     case 'hand':
       return (
-        <Section title={s.tool === 'zoom' ? 'Zoom' : 'Hand'} icon={s.tool}>
+        <Section title={s.tool === 'zoom' ? 'Zoom' : 'Hand'} icon={s.tool} id={`tool-${s.tool}`}>
           <div className="grid3">
             {[0.25, 0.5, 1, 2, 4, 8].map((z) => <button key={z} className="btn sm" aria-pressed={Math.abs(s.zoom - z) < 1e-3} data-tip={`Zoom to ${z * 100}%`} data-tip-desc="Set the stage zoom to this level." onClick={() => setZoom(z)}>{z * 100}%</button>)}
           </div>
@@ -279,7 +310,6 @@ function SingleObject({ o, frame, layerId }: { o: SceneObject; frame: number; la
         </div>
         <div className="row">
           <Check label="Visible" checked={o.visible} onChange={(v) => upd('Toggle visibility', (x) => ({ ...x, visible: v }))} />
-          <Check label="Locked" checked={o.locked} onChange={(v) => { upd('Toggle lock', (x) => ({ ...x, locked: v })); if (v) store.set({ selection: [] }); }} />
         </div>
         {editablePath(o) && <EditPointsButton id={id} brush={o.kind === 'path' && !!o.brush} shape={o.kind === 'shape'} />}
       </Section>
@@ -316,6 +346,13 @@ function SingleObject({ o, frame, layerId }: { o: SceneObject; frame: number; la
           <button className="btn sm" onClick={() => arrange('back')} aria-label="Send to back" data-tip-keys={formatKeys(['Mod+Shift+['])} data-tip-desc={commands['edit.back'].help}>Back</button>
         </div>
       </Section>
+      {(o.kind === 'path' || o.kind === 'shape') && (
+        <StyleEditor style={o.style} closed={o.kind === 'shape' || o.geometry.closed} onChange={(patch) => upd('Edit style', (x) => ({ ...x, style: { ...x.style, ...patch } }))}
+          title={o.kind === 'path' && o.brush ? 'Brush stroke color (fill)' : 'Appearance'} />
+      )}
+      {o.kind === 'text' && (
+        <StyleEditor style={o.style} closed onChange={(patch) => upd('Edit style', (x) => ({ ...x, style: { ...x.style, ...patch } }))} />
+      )}
       <Section title="Animation" icon="keyframe">
         <p className="hint">
           {o.keyframes.length === 0 ? 'Not animated. Add a keyframe or create a motion tween; edits then key automatically at the playhead.'
@@ -340,7 +377,7 @@ function SingleObject({ o, frame, layerId }: { o: SceneObject; frame: number; la
         )}
       </Section>
       {o.kind === 'shape' && (
-        <Section title="Shape">
+        <Section title="Shape" id="object-shape">
           <Seg label="Shape type" value={o.geometry.shape} onChange={(shape) => upd('Change shape', (x) => (x.kind === 'shape' ? { ...x, geometry: { ...x.geometry, shape } } : x))} options={[
             { value: 'rect', label: <Icon name="rect" size={16} />, title: 'Rectangle', tip: 'Draw rectangles, with optional rounded corners.' }, { value: 'ellipse', label: <Icon name="ellipse" size={16} />, title: 'Ellipse', tip: 'Draw ovals and circles.' },
             { value: 'triangle', label: <Icon name="triangle" size={16} />, title: 'Triangle', tip: 'Draw triangles.' }, { value: 'polygon', label: <Icon name="polygon" size={16} />, title: 'Polygon', tip: 'Draw shapes with any number of equal sides.' },
@@ -356,13 +393,6 @@ function SingleObject({ o, frame, layerId }: { o: SceneObject; frame: number; la
           <TextEditorFields t={o.text} onChange={(patch) => upd('Edit typography', (x) => (x.kind === 'text' ? { ...x, text: { ...x.text, ...patch } } : x))} />
           <button className="btn sm" data-tip-desc="Edit this text directly on the stage." onClick={() => store.set({ editingTextId: id })}>Edit text…</button>
         </Section>
-      )}
-      {(o.kind === 'path' || o.kind === 'shape') && (
-        <StyleEditor style={o.style} closed={o.kind === 'shape' || o.geometry.closed} onChange={(patch) => upd('Edit style', (x) => ({ ...x, style: { ...x.style, ...patch } }))}
-          title={o.kind === 'path' && o.brush ? 'Brush stroke color (fill)' : 'Appearance'} />
-      )}
-      {o.kind === 'text' && (
-        <StyleEditor style={o.style} closed onChange={(patch) => upd('Edit style', (x) => ({ ...x, style: { ...x.style, ...patch } }))} />
       )}
       {o.kind === 'path' && o.brush && (
         <Section title="Brush data">
@@ -396,7 +426,7 @@ function MultiObject({ objs, frame }: { objs: { o: SceneObject }[]; frame: numbe
   const first = vector[0]?.o;
   return (
     <>
-      <Section title={`${objs.length} objects`}>
+      <Section title={`${objs.length} objects`} id="multi-objects">
         <p className="hint">{kinds}</p>
         <div className="grid2">
           <NumberField label="Selection X" scrubLabel="X" value={u.x} precision={1} onChange={(v) => moveAll(v - u.x, 0)} />
@@ -414,6 +444,7 @@ function MultiObject({ objs, frame }: { objs: { o: SceneObject }[]; frame: numbe
         </div>
         <button className="btn sm" data-tip="Add keyframe to all" data-tip-keys="F9" data-tip-desc="Record a keyframe at the playhead for every selected object." onClick={cmdAddKeyframe}><Icon name="keyframe" size={14} /> Add keyframe to all</button>
       </Section>
+      <CombineSection />
       {first && (
         <StyleEditor title={`Appearance (${vector.length} vector)`} style={first.style} closed onChange={(patch) => commitMerge('Edit style', (p) => mapObjects(p, vector.map((x) => x.o.id), (x) => ({ ...x, style: { ...x.style, ...patch } })), ids)} />
       )}
@@ -429,7 +460,7 @@ function LayerInfo({ layerId }: { layerId: string }) {
   if (!layer) return null;
   const e = exposureAt(layer, frame);
   return (
-    <Section title={`Layer · ${layer.name}`}>
+    <Section title={`Layer · ${layer.name}`} id="layer">
       <Field label="Blend mode">
         <select className="input" value={layer.blendMode} onChange={(ev: React.ChangeEvent<HTMLSelectElement>) => commit('Blend mode', (p) => ({ ...p, layers: p.layers.map((l) => (l.id === layerId ? { ...l, blendMode: ev.target.value as BlendMode } : l)) }))}>
           {BLEND_MODES.map((m) => <option key={m} value={m}>{m[0].toUpperCase() + m.slice(1).replace('-', ' ')}</option>)}
@@ -522,5 +553,25 @@ function EditPointsButton({ id, brush, shape }: { id: string; brush: boolean; sh
       }}>
       <Icon name="pen" size={14} /> {editing ? 'Done editing points' : 'Edit points'}
     </button>
+  );
+}
+
+function CombineSection() {
+  // Re-evaluate when the selection, project or frame changes.
+  useApp((s) => [s.selection, s.project, s.currentFrame]);
+  const t = combineTargets();
+  return (
+    <Section title="Combine shapes" id="combine">
+      <div className="combine-row" role="group" aria-label="Combine shapes">
+        {COMBINE_OPS.map((op) => (
+          <button key={op.id} className="btn combine-btn" disabled={!t.ok} data-tip={op.label} data-tip-desc={op.help}
+            aria-label={`${op.label}: ${op.help}`} onClick={() => combineSelection(op.id)}>
+            <CombineIcon op={op.id} size={22} />
+            <span>{op.label}</span>
+          </button>
+        ))}
+      </div>
+      <p className="hint">{t.ok ? 'Front and back follow the stacking order (Front / Back buttons). The result replaces the selected shapes.' : t.reason}</p>
+    </Section>
   );
 }

@@ -70,3 +70,28 @@ export function Icon({ name, size = 20, className = '' }: { name: string; size?:
     </svg>
   );
 }
+
+// Combine-shape icons: a back square and a front square overlapping in the middle.
+const BACK_ONLY = '3,3 15,3 15,9 9,9 9,15 3,15';
+const FRONT_ONLY = '15,9 21,9 21,21 9,21 9,15 15,15';
+const OVERLAP = '9,9 15,9 15,15 9,15';
+const COMBINE_FILLED: Record<string, string[]> = {
+  unite: ['3,3 15,3 15,9 21,9 21,21 9,21 9,15 3,15'],
+  subtract: [BACK_ONLY],
+  intersect: [OVERLAP],
+  exclude: [BACK_ONLY, FRONT_ONLY],
+  divide: [BACK_ONLY, OVERLAP, FRONT_ONLY],
+};
+
+export function CombineIcon({ op, size = 20 }: { op: string; size?: number }) {
+  return (
+    <svg className="icon" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="3" y="3" width="12" height="12" fill="none" stroke="currentColor" strokeOpacity=".45" strokeWidth="1.25" />
+      <rect x="9" y="9" width="12" height="12" fill="none" stroke="currentColor" strokeOpacity=".45" strokeWidth="1.25" />
+      {(COMBINE_FILLED[op] ?? []).map((pts) => (
+        <polygon key={pts} points={pts} fill="currentColor" fillOpacity={op === 'divide' ? 0.75 : 0.9}
+          stroke={op === 'divide' ? 'var(--panel)' : 'currentColor'} strokeWidth={op === 'divide' ? 1.25 : 1} strokeLinejoin="round" />
+      ))}
+    </svg>
+  );
+}

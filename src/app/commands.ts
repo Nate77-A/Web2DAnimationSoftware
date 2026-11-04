@@ -7,6 +7,7 @@ import {
 import { fitToStage, setSpaceDown, setZoom } from '../editor/Stage';
 import { commit, getState, redo, store, undo, type PanelState } from '../editor/state';
 import { setTool, tools, TOOL_LIST } from '../editor/tools';
+import { combineSelection, combineTargets, COMBINE_OPS } from '../editor/combine';
 import { newProject, openProject, saveProjectAs, saveProjectFile } from '../features/fileCommands';
 import { togglePlay } from '../timeline/playback';
 
@@ -60,6 +61,10 @@ def({ id: 'edit.backward', label: 'Send Backward', help: 'Move the selection dow
 def({ id: 'edit.back', label: 'Send to Back', help: 'Move the selection behind everything else on its layer.', keys: ['Mod+Shift+['], run: () => arrange('back'), enabled: hasSel });
 def({ id: 'edit.flipH', label: 'Flip Horizontal', help: 'Mirror the selection left to right.', run: () => flipSelection('h'), enabled: hasSel });
 def({ id: 'edit.flipV', label: 'Flip Vertical', help: 'Mirror the selection top to bottom.', run: () => flipSelection('v'), enabled: hasSel });
+
+for (const op of COMBINE_OPS) {
+  def({ id: `combine.${op.id}`, label: `Combine: ${op.label}`, help: op.help, run: () => void combineSelection(op.id), enabled: () => combineTargets().ok });
+}
 
 // View
 def({ id: 'view.zoomIn', label: 'Zoom In', help: 'Magnify the stage.', keys: ['Mod+=', 'Mod++'], run: () => setZoom(getState().viewport.zoom * 1.25) });
@@ -127,7 +132,7 @@ export const FPS_HELP: Record<number, string> = {
 
 export const MENUS: { id: string; label: string; help: string; items: (string | '-')[] }[] = [
   { id: 'file', label: 'File', help: 'Create, open, save, import images and export.', items: ['file.new', 'file.open', 'file.projects', '-', 'file.save', 'file.saveAs', '-', 'file.import', 'file.export'] },
-  { id: 'edit', label: 'Edit', help: 'Undo, clipboard, selection, stacking order and flipping.', items: ['edit.undo', 'edit.redo', '-', 'edit.cut', 'edit.copy', 'edit.paste', 'edit.duplicate', 'edit.delete', '-', 'edit.selectAll', 'edit.deselect', '-', 'edit.front', 'edit.forward', 'edit.backward', 'edit.back', '-', 'edit.flipH', 'edit.flipV'] },
+  { id: 'edit', label: 'Edit', help: 'Undo, clipboard, selection, stacking order and flipping.', items: ['edit.undo', 'edit.redo', '-', 'edit.cut', 'edit.copy', 'edit.paste', 'edit.duplicate', 'edit.delete', '-', 'edit.selectAll', 'edit.deselect', '-', 'edit.front', 'edit.forward', 'edit.backward', 'edit.back', '-', 'edit.flipH', 'edit.flipV', '-', ...COMBINE_OPS.map((op) => `combine.${op.id}`)] },
   { id: 'view', label: 'View', help: 'Zoom, guides and onion skin.', items: ['view.zoomIn', 'view.zoomOut', 'view.fit', 'view.actual', '-', 'view.guides', 'view.onion', 'view.markers'] },
   { id: 'timeline', label: 'Timeline', help: 'Playback, frames, keyframes, tweens and layers.', items: ['tl.play', 'tl.loop', '-', 'tl.insertFrame', 'tl.deleteFrame', 'tl.duplicateFrame', 'tl.blankFrame', 'tl.clearFrame', '-', 'tl.tween', 'tl.addKey', 'tl.removeKey', '-', 'tl.addLayer', 'tl.duplicateLayer', 'tl.deleteLayer', '-', 'tl.zoomIn', 'tl.zoomOut', 'tl.fit'] },
   { id: 'window', label: 'Window', help: 'Show or hide panels, keyboard shortcuts and app info.', items: ['win.tools', 'win.properties', 'win.timeline', 'win.reset', '-', 'help.shortcuts', 'help.about'] },

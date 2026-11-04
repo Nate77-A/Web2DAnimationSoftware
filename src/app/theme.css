@@ -267,7 +267,19 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 .props-header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-bottom: 1px solid var(--outline); background: var(--panel); font-weight: 600; }
 .props-header .badge { margin-left: auto; }
 .section { padding: 12px 14px 14px; border-bottom: 1px solid var(--outline); display: flex; flex-direction: column; gap: 10px; }
-.section h3 { margin: 0; font-size: 11px; font-weight: 650; letter-spacing: .6px; text-transform: uppercase; color: var(--text-2); display: flex; align-items: center; gap: 6px; }
+.section.collapsed { padding-bottom: 12px; }
+.section h3 { margin: 0; font-size: 11px; font-weight: 650; letter-spacing: .6px; text-transform: uppercase; color: var(--text-2); }
+.section-toggle {
+  display: flex; align-items: center; gap: 6px; width: calc(100% + 12px); margin: -4px -6px; padding: 4px 6px; border: 0; border-radius: var(--radius-sm);
+  background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer;
+}
+.section-toggle:hover { background: var(--raised); color: var(--text); }
+.section-toggle:focus-visible { box-shadow: var(--focus); }
+.section-toggle .section-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.section-body { display: flex; flex-direction: column; gap: 10px; }
+.combine-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.combine-btn { flex-direction: column; height: auto; gap: 3px; padding: 6px 2px; font-size: 10.5px; line-height: 1.15; white-space: normal; text-align: center; }
+.combine-btn:disabled .icon { opacity: .5; }
 .paint-field { display: flex; align-items: center; gap: 8px; }
 .paint-chip {
   width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--outline-2); padding: 0; position: relative; overflow: hidden; flex: none;

@@ -88,10 +88,17 @@ const objectBase = {
   keyframes: z.array(keyframeSchema),
 };
 
+export const subpathSchema = z.object({ segments: z.array(segmentSchema), closed: z.boolean() });
+
 export const pathObjectSchema = z.object({
   ...objectBase,
   kind: z.literal('path'),
-  geometry: z.object({ segments: z.array(segmentSchema), closed: z.boolean() }),
+  geometry: z.object({
+    segments: z.array(segmentSchema),
+    closed: z.boolean(),
+    /** Further outlines of a compound path (holes and separate pieces, e.g. from combining shapes). */
+    subpaths: z.array(subpathSchema).optional(),
+  }),
   brush: brushMetaSchema.nullable(),
 });
 export const shapeObjectSchema = z.object({

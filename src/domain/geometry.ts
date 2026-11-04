@@ -47,7 +47,24 @@ export function shapeSegments(g: ShapeObject['geometry']): { segments: Segment[]
   }
 }
 
-/** Returns renderable segments for vector kinds; null for text/bitmap/group. */
+export interface Subpath { segments: Segment[]; closed: boolean }
+
+/** Every outline of a vector object: one for shapes and simple paths, several for compound paths. */
+export function objectSubpaths(o: SceneObject): Subpath[] | null {
+  if (o.kind === 'path') return [{ segments: o.geometry.segments, closed: o.geometry.closed }, ...(o.geometry.subpaths ?? [])];
+  if (o.kind === 'shape') return [shapeSegments(o.geometry)];
+  return null;
+}
+
+export function isCompound(o: SceneObject): boolean {
+  return o.kind === 'path' && !!o.geometry.subpaths?.length;
+}
+
+export function subpathsToPathData(subpaths: Subpath[]): string {
+  return subpaths.map((s) => segmentsToPathData(s.segments, s.closed)).join('');
+}
+
+/** Returns the first outline of a vector object; null for text/bitmap/group. See objectSubpaths. */
 export function objectSegments(o: SceneObject): { segments: Segment[]; closed: boolean } | null {
   if (o.kind === 'path') return o.geometry;
   if (o.kind === 'shape') return shapeSegments(o.geometry);
@@ -188,7 +205,8 @@ export function layoutText(t: TextData, measure: MeasureFn): TextLayout {
 /** Local (untransformed) bounds of an object. */
 export function localBounds(o: SceneObject, measure: MeasureFn): Rect {
   switch (o.kind) {
-    case 'path': return segmentsBounds(o.geometry.segments, o.geometry.closed);
+    case 'path': return unionRects(objectSubpaths(o)!.filter((s) => s.segments.length).map((s) => segmentsBounds(s.segments, s.closed)))
+      ?? { x: 0, y: 0, width: 0, height: 0 };
     case 'shape': return { x: 0, y: 0, width: o.geometry.width, height: o.geometry.height };
     case 'bitmap': return { x: 0, y: 0, width: o.geometry.width, height: o.geometry.height };
     case 'text': {

@@ -2,7 +2,7 @@
 // Paper segments use the same point + relative in/out handle model as the project schema, so the
 // mapping is one-to-one. Paths are never inserted into a Paper project; the schema stays the source of truth.
 import paper from 'paper/dist/paper-core';
-import { objectSegments } from '../domain/geometry';
+import { objectSubpaths, type Subpath } from '../domain/geometry';
 import type { SceneObject, Segment, Vec } from '../domain/schema';
 
 let ready = false;
@@ -15,7 +15,10 @@ function scope() {
   return paper;
 }
 
-const cache = new WeakMap<object, paper.Path>();
+/** A single outline or a compound path (several outlines, e.g. a shape with holes). */
+export type PaperShape = paper.Path | paper.CompoundPath;
+
+const cache = new WeakMap<object, PaperShape>();
 
 export function segmentsToPaper(segments: Segment[], closed: boolean): paper.Path {
   const p = scope();
@@ -26,14 +29,20 @@ export function segmentsToPaper(segments: Segment[], closed: boolean): paper.Pat
   });
 }
 
-/** paper.Path for a vector object in local coordinates, cached by immutable geometry reference. */
-export function paperPath(o: SceneObject): paper.Path | null {
+/** Paper item for a list of outlines: a Path for one, a CompoundPath for several. */
+export function subpathsToPaper(subpaths: Subpath[]): PaperShape {
+  if (subpaths.length === 1) return segmentsToPaper(subpaths[0].segments, subpaths[0].closed);
+  const p = scope();
+  return new p.CompoundPath({ children: subpaths.map((s) => segmentsToPaper(s.segments, s.closed)), insert: false });
+}
+
+/** Paper item for a vector object in local coordinates, cached by immutable geometry reference. */
+export function paperPath(o: SceneObject): PaperShape | null {
   if (o.kind !== 'path' && o.kind !== 'shape') return null;
   const key = o.geometry;
   let p = cache.get(key);
   if (!p) {
-    const g = objectSegments(o)!;
-    p = segmentsToPaper(g.segments, g.closed);
+    p = subpathsToPaper(objectSubpaths(o)!);
     cache.set(key, p);
   }
   p.fillRule = o.style.fillRule;
@@ -53,7 +62,7 @@ export function paperContains(o: SceneObject, lp: Vec): boolean {
 /** Distance from a local point to the path outline (Infinity for non-vector objects). */
 export function paperDistance(o: SceneObject, lp: Vec): number {
   const path = paperPath(o);
-  if (!path || !path.segments.length) return Infinity;
+  if (!path || !path.firstSegment) return Infinity;
   const pt = new paper.Point(lp[0], lp[1]);
   const near = path.curves.length ? path.getNearestPoint(pt) : path.firstSegment.point;
   return near ? near.getDistance(pt) : Infinity;

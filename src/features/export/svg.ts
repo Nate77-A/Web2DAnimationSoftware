@@ -1,7 +1,7 @@
 // Animated SVG exporter with an up-front capability analyzer (see docs/decisions/0007-animated-svg.md).
 import { parseHex } from '../../domain/color';
 import { contentAt, isLayerEffectivelyVisible, sampleObject } from '../../domain/evaluator';
-import { layoutText, quoteFamily, segmentsToPathData, objectSegments } from '../../domain/geometry';
+import { layoutText, quoteFamily, objectSegments, objectSubpaths, subpathsToPathData } from '../../domain/geometry';
 import { transformMatrix, type Matrix } from '../../domain/math';
 import type { Asset, Content, Exposure, Layer, Paint, Project, SceneObject } from '../../domain/schema';
 import { cachedLocalBounds, linearGradientPoints, measureText } from '../../editor/renderer';
@@ -131,7 +131,8 @@ function objectMarkup(o: SceneObject, defs: Defs, idPrefix: string): string {
       const closed = o.kind === 'shape' || g.closed;
       let attrs = paintAttrs();
       if (!closed) attrs = attrs.replace(/fill="[^"]*"( fill-opacity="[^"]*")?/, 'fill="none"');
-      return `<path d="${segmentsToPathData(g.segments, closed)}" ${attrs}/>`;
+      const outlines = objectSubpaths(o)!.map((s, i) => (i === 0 ? { ...s, closed } : s));
+      return `<path d="${subpathsToPathData(outlines)}" ${attrs}/>`;
     }
     case 'text': {
       const t = o.text;

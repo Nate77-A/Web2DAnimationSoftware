@@ -2,7 +2,7 @@
 // renders the interactive stage, thumbnails and every raster export (PNG/GIF/MP4).
 import { cssColor } from '../domain/color';
 import type { EvalObject, EvaluatedScene } from '../domain/evaluator';
-import { fontString, layoutText, objectSegments, localBounds, type MeasureFn } from '../domain/geometry';
+import { fontString, layoutText, objectSegments, isCompound, localBounds, objectSubpaths, type MeasureFn } from '../domain/geometry';
 import { type Matrix, transformMatrix } from '../domain/math';
 import type { Paint, SceneObject, Segment, TextObject } from '../domain/schema';
 import { paperPathData } from './paperAdapter';
@@ -53,6 +53,14 @@ export function segmentsPath(segments: Segment[], closed: boolean): Path2D {
 
 /** Local Path2D for vector objects (cached by immutable geometry reference). */
 export function objectPath(o: SceneObject): Path2D | null {
+  if (o.kind === 'path' && isCompound(o)) {
+    let p = pathCache.get(o.geometry);
+    if (!p) {
+      p = new Path2D(objectSubpaths(o)!.map((s) => paperPathData(s.segments, s.closed)).join(''));
+      pathCache.set(o.geometry, p);
+    }
+    return p;
+  }
   if (o.kind === 'path') return segmentsPath(o.geometry.segments, o.geometry.closed);
   if (o.kind === 'shape') {
     let p = pathCache.get(o.geometry);

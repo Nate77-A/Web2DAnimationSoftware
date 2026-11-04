@@ -338,6 +338,23 @@ await shot('04-final');
   await pg.keyboard.press('Escape');
   check('Esc leaves path edit mode', (await st()).pathEdit === null);
 
+  // Properties panel: no object Locked box, Appearance above Animation, sections collapse and remember it
+  const props = pg.locator('aside.props');
+  const titles = await props.locator('.section-title').allInnerTexts();
+  check('object properties have no Locked checkbox', (await props.getByLabel('Locked', { exact: true }).count()) === 0 && (await props.getByLabel('Visible').count()) === 1);
+  const ai = titles.findIndex((t) => /^appearance$/i.test(t)), ani = titles.findIndex((t) => /^animation$/i.test(t));
+  check('Appearance sits above Animation', ai >= 0 && ani > ai, titles.join(', '));
+  const transform = props.locator('section[aria-label="Transform"]');
+  await transform.locator('.section-toggle').click();
+  const hidden = (await transform.locator('.section-body').count()) === 0 && (await transform.locator('.section-toggle').getAttribute('aria-expanded')) === 'false';
+  await pg.reload(); await pg.waitForSelector('.stage canvas'); await pg.waitForTimeout(400);
+  await pg.evaluate((id) => window.__studio.set({ selection: [id] }), rect.id);
+  const stillHidden = (await props.locator('section[aria-label="Transform"] .section-body').count()) === 0;
+  await props.locator('section[aria-label="Transform"] .section-toggle').click();
+  check('section toggle hides and shows a group, and is remembered', hidden && stillHidden
+    && (await props.locator('section[aria-label="Transform"] .section-body').count()) === 1);
+  await pg.evaluate(() => window.__studio.set({ selection: [] }));
+
   // Brush stroke: edit its centerline
   await pg.keyboard.press('b');
   await pg.mouse.move(...(await P(300, 800))); await pg.mouse.down();
@@ -355,6 +372,40 @@ await shot('04-final');
   await pg.keyboard.press('ControlOrMeta+z');
   const undone = (await objs()).find((x) => x.id === strokeBefore.id);
   check('undo restores the brush stroke', !undone.brush.spine && undone.brush.samples.length === strokeBefore.brush.samples.length);
+
+  // Combine shapes
+  await pg.keyboard.press('Escape');
+  await pg.keyboard.press('u');
+  await drag([1000, 150], [1300, 450]);
+  const cBack = (await objs()).at(-1);
+  await drag([1150, 300], [1450, 600]);
+  const cFront = (await objs()).at(-1);
+  const select2 = () => pg.evaluate((ids) => window.__studio.set({ selection: ids }), [cBack.id, cFront.id]);
+  const docBounds = (o) => { const pts = [o.geometry.segments, ...(o.geometry.subpaths ?? []).map((x) => x.segments)].flat().map((q) => docOf(o, q.p));
+    return [Math.min(...pts.map((q) => q[0])), Math.min(...pts.map((q) => q[1])), Math.max(...pts.map((q) => q[0])), Math.max(...pts.map((q) => q[1]))].map(Math.round); };
+  const before = (await objs()).length;
+  await select2();
+  await props.getByRole('button', { name: /^Intersect:/ }).click();
+  const sel = (await st()).selection;
+  const made = (await objs()).find((x) => x.id === sel[0]);
+  check('Intersect keeps only the overlap', (await objs()).length === before - 1 && JSON.stringify(docBounds(made)) === JSON.stringify([1150, 300, 1300, 450])
+    && (await lastLabel()) === 'Intersect shapes', JSON.stringify(docBounds(made)));
+  await pg.keyboard.press('ControlOrMeta+z');
+  check('undo restores both shapes', (await objs()).length === before && (await objs()).some((x) => x.id === cBack.id) && (await objs()).some((x) => x.id === cFront.id));
+
+  await select2();
+  await pg.getByRole('menuitem', { name: 'Edit' }).click();
+  await pg.getByRole('menuitem', { name: 'Combine: Exclude' }).click();
+  const exId = (await st()).selection[0];
+  const ex = (await objs()).find((x) => x.id === exId);
+  check('Edit › Combine: Exclude leaves a compound shape with the overlap cut out', (await objs()).length === before - 1 && ex.geometry.subpaths?.length === 1
+    && (await lastLabel()) === 'Exclude overlap');
+  await pg.screenshot({ path: `${SHOTS}/06-combine.png` });
+  await pg.keyboard.press('ControlOrMeta+z');
+
+  await select2();
+  await props.getByRole('button', { name: /^Divide:/ }).click();
+  check('Divide splits overlapping shapes into three pieces', (await objs()).length === before + 1 && (await st()).selection.length === 3);
   await ctx2.close();
 }
 
