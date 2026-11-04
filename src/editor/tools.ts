@@ -11,6 +11,8 @@ import { addObjects, locateObject, mapObjects, removeObjects, replaceObject, set
 import { evaluateLayer, isLayerEffectivelyVisible, sampleObject } from '../domain/evaluator';
 import type { Paint, PathObject, Project, SceneObject, Segment, ShapeObject, Style, TextObject, Transform, Vec } from '../domain/schema';
 import { getAssetImage } from '../features/assets';
+import { editablePath } from './pathEdit';
+import { enterPathEdit, exitPathEdit, pathEditCancel, pathEditDown, pathEditHover, pathEditKey, pathEditMove, pathEditUp } from './pathEditTool';
 import { renderScene, cachedLocalBounds } from './renderer';
 import { frameObjects, hitObject, hitTest, objectsInRect, selectionInfo, screenToDoc, zoomAt, type SelectionInfo } from './scene';
 import {
@@ -43,20 +45,20 @@ export interface Tool {
   key?(e: KeyboardEvent): boolean;
 }
 
-export interface ToolMeta { id: ToolId; label: string; shortcut: string; transient?: boolean; drawing?: boolean }
+export interface ToolMeta { id: ToolId; label: string; shortcut: string; help: string; transient?: boolean; drawing?: boolean }
 
 export const TOOL_LIST: ToolMeta[] = [
-  { id: 'select', label: 'Select', shortcut: 'V' },
-  { id: 'transform', label: 'Move, Rotate & Scale', shortcut: 'Q' },
-  { id: 'brush', label: 'Brush', shortcut: 'B', drawing: true },
-  { id: 'eraser', label: 'Eraser', shortcut: 'E', drawing: true },
-  { id: 'shape', label: 'Shape', shortcut: 'U', drawing: true },
-  { id: 'pen', label: 'Pen', shortcut: 'P', drawing: true },
-  { id: 'text', label: 'Text', shortcut: 'T', drawing: true },
-  { id: 'bucket', label: 'Paint Bucket', shortcut: 'K', drawing: true },
-  { id: 'eyedropper', label: 'Eyedropper', shortcut: 'I', transient: true },
-  { id: 'hand', label: 'Hand', shortcut: 'H', transient: true },
-  { id: 'zoom', label: 'Zoom', shortcut: 'Z', transient: true },
+  { id: 'select', label: 'Select', shortcut: 'V', help: 'Click an object to select it, drag to move it, or drag on empty space to box-select. Shift-click adds to the selection. Double-click a path, shape or brush stroke to edit its points.' },
+  { id: 'transform', label: 'Move, Rotate & Scale', shortcut: 'Q', help: 'Select objects and use the handles to move, rotate and scale them. Shift keeps proportions; Alt scales from the center.' },
+  { id: 'brush', label: 'Brush', shortcut: 'B', help: 'Draw freehand strokes. Pen pressure and tilt change the width when your device supports them.', drawing: true },
+  { id: 'eraser', label: 'Eraser', shortcut: 'E', help: 'Drag across brush strokes to cut them apart, or switch to Delete mode to remove whole objects.', drawing: true },
+  { id: 'shape', label: 'Shape', shortcut: 'U', help: 'Drag to draw a rectangle, ellipse, triangle or polygon. Shift makes it even; Alt draws from the center.', drawing: true },
+  { id: 'pen', label: 'Pen', shortcut: 'P', help: 'Click to place points, drag to make curves, click the first point to close. Enter finishes, Esc cancels.', drawing: true },
+  { id: 'text', label: 'Text', shortcut: 'T', help: 'Click the stage to add text, or click existing text to edit it. Ctrl/⌘+Enter commits, Esc cancels.', drawing: true },
+  { id: 'bucket', label: 'Paint Bucket', shortcut: 'K', help: 'Click inside a closed shape to fill it with the current fill color.', drawing: true },
+  { id: 'eyedropper', label: 'Eyedropper', shortcut: 'I', help: 'Click the stage to copy the color under the pointer into your fill swatch. Alt-click fills the other swatch.', transient: true },
+  { id: 'hand', label: 'Hand', shortcut: 'H', help: 'Drag to pan around the stage. Hold Space to use it from any tool.', transient: true },
+  { id: 'zoom', label: 'Zoom', shortcut: 'Z', help: 'Click to zoom in, Alt-click to zoom out, or drag a box to zoom to that area.', transient: true },
 ];
 
 export const isDrawingTool = (id: ToolId) => !!TOOL_LIST.find((t) => t.id === id)?.drawing;
@@ -154,6 +156,7 @@ function createSelectTool(withHandles: boolean): Tool {
   let info: SelectionInfo | null = null;
   let handle: HandleId | null = null;
   let moved = false;
+  let editing = false; // this press belongs to path edit mode
 
   const finishMarquee = (e: PointerInfo) => {
     const r = getState().overlay.marquee;
@@ -165,6 +168,8 @@ function createSelectTool(withHandles: boolean): Tool {
 
   return {
     down(e) {
+      editing = !!getState().pathEdit && pathEditDown(e);
+      if (editing) { mode = 'none'; return; }
       const s = getState();
       start = e.doc;
       moved = false;
@@ -185,6 +190,12 @@ function createSelectTool(withHandles: boolean): Tool {
           mode = 'none';
           return;
         }
+        if (e.clickCount >= 2 && !e.shift && editablePath(hit.source)) {
+          cancelGesture();
+          enterPathEdit(id);
+          mode = 'none';
+          return;
+        }
         if (e.shift) {
           store.set({ selection: s.selection.includes(id) ? s.selection.filter((x) => x !== id) : [...s.selection, id] });
           mode = 'none';
@@ -201,6 +212,7 @@ function createSelectTool(withHandles: boolean): Tool {
       }
     },
     move(e) {
+      if (editing) { pathEditMove(e); return; }
       const s = getState();
       const frame = s.currentFrame;
       if (mode === 'marquee') {
@@ -277,6 +289,7 @@ function createSelectTool(withHandles: boolean): Tool {
       }
     },
     up(e) {
+      if (editing) { editing = false; pathEditUp(); return; }
       if (mode === 'marquee') finishMarquee(e);
       else if (mode === 'move') { if (moved) endGesture('Move', orig.map((o) => o.id)); else cancelGesture(); }
       else if (mode === 'scale') endGesture('Scale', orig.map((o) => o.id));
@@ -284,11 +297,14 @@ function createSelectTool(withHandles: boolean): Tool {
       mode = 'none';
       info = null;
     },
+    hover(e) { if (getState().pathEdit) pathEditHover(e); },
     cancel() {
+      if (editing) { editing = false; pathEditCancel(); return; }
       if (mode === 'marquee') setOverlay({ marquee: null });
       else if (mode !== 'none') cancelGesture();
       mode = 'none';
     },
+    key(e) { return pathEditKey(e); },
   };
 }
 
@@ -381,9 +397,12 @@ function applyEraser(base: Project, frame: number, layerIds: string[], circles: 
       const local = circles.map((c) => { const q = apply(inv, [c.x, c.y]); return { x: q[0], y: q[1], r: c.r / sc }; });
       const runs = splitSamples(o.brush.samples, local);
       if (runs.length === 1 && runs[0].length === o.brush.samples.length) continue;
+      // The edited centerline no longer matches the split pieces; it is re-fitted on the next edit.
+      const { spine: _spine, ...meta } = o.brush;
+      void _spine;
       const pieces: SceneObject[] = runs.map((samples, i) => {
-        const segs = brushOutline(samples, o.brush!.settings, o.brush!.hasPressure, o.brush!.hasTilt);
-        return { ...o, id: i === 0 ? o.id : newId('obj'), geometry: { segments: segs, closed: true }, brush: { ...o.brush!, samples } };
+        const segs = brushOutline(samples, meta.settings, meta.hasPressure, meta.hasTilt);
+        return { ...o, id: i === 0 ? o.id : newId('obj'), geometry: { segments: segs, closed: true }, brush: { ...meta, samples } };
       });
       p = replaceObject(p, o.id, pieces);
     }
@@ -694,6 +713,7 @@ export function setTool(id: ToolId) {
   const s = getState();
   if (s.tool === id && !s.transientTool) return;
   tools[s.transientTool ?? s.tool].cancel();
+  if (id !== 'select' && id !== 'transform') exitPathEdit();
   if (s.overlay.pen && id !== 'pen') finishPen(false);
   store.set({ tool: id, transientTool: null, overlay: { ...getState().overlay, eraser: null, brushCursor: null } });
 }

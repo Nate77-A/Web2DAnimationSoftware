@@ -27,8 +27,8 @@ export type Dialog =
   | { kind: 'projects' }
   | { kind: 'shortcuts' }
   | { kind: 'about' }
-  | { kind: 'confirm'; title: string; body: string; confirmLabel: string; danger?: boolean; onConfirm: () => void; altLabel?: string; onAlt?: () => void }
-  | { kind: 'prompt'; title: string; label: string; value: string; confirmLabel: string; onConfirm: (v: string) => void }
+  | { kind: 'confirm'; title: string; body: string; confirmLabel: string; confirmHelp?: string; danger?: boolean; onConfirm: () => void; altLabel?: string; altHelp?: string; onAlt?: () => void }
+  | { kind: 'prompt'; title: string; label: string; value: string; confirmLabel: string; confirmHelp?: string; onConfirm: (v: string) => void }
   | { kind: 'recovery'; message: string; details: string[]; raw: string | null; projectId: string | null };
 
 export interface PenDraft { segments: { p: Vec; hi: Vec; ho: Vec }[]; hover: Vec | null; dragging: boolean }
@@ -52,6 +52,21 @@ export interface ToolOptions {
 
 export interface PanelState { tools: boolean; properties: boolean; timeline: boolean }
 
+/** Path edit mode (double-click a path, shape or brush stroke with the Select tool). */
+export interface PathEditState {
+  id: string;
+  /** Selected anchor indices. */
+  selected: number[];
+  /** Curve being bent (from anchor `curve` to the next); its handles stay visible. */
+  curve: number | null;
+  /** Anchor being held down; the overlay shows a ring that fills until it toggles smooth/sharp. */
+  hold: number | null;
+  /** What is under the pointer, for the cursor. */
+  hover: 'anchor' | 'handle' | 'curve' | null;
+  /** Anchor whose delete (X) button is showing, after double-clicking it. */
+  deletePrompt: number | null;
+}
+
 export interface AppState {
   project: Project;
   past: Command[];
@@ -69,6 +84,7 @@ export interface AppState {
   recentColors: string[];
   selection: string[];
   editingTextId: string | null;
+  pathEdit: PathEditState | null;
   viewport: Viewport;
   stageSize: { width: number; height: number };
   panels: PanelState;
@@ -114,6 +130,7 @@ export function initialState(project: Project = createProject()): AppState {
     recentColors: ['#16191EFF', '#FFFFFFFF', '#3CC8D6FF', '#F2A33AFF', '#EF6A82FF', '#58C77AFF'],
     selection: [],
     editingTextId: null,
+    pathEdit: null,
     viewport: { panX: 0, panY: 0, zoom: 0.5 },
     stageSize: { width: 800, height: 600 },
     panels: { tools: true, properties: true, timeline: true },
@@ -274,6 +291,7 @@ export function loadProjectIntoEditor(project: Project, opts: { fileDirty?: bool
     gestureBase: null,
     selection: [],
     editingTextId: null,
+    pathEdit: null,
     currentFrame: 0,
     frameRange: null,
     playing: false,

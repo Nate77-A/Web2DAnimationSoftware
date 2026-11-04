@@ -8,7 +8,7 @@ import {
   cmdMoveLayer, cmdUpdateLayer, goToFrame, toggleSolo, cmdAddKeyframe,
 } from '../editor/actions';
 import { commit, commitMerge, getState, store, useApp } from '../editor/state';
-import { formatKeys, setPref, setTimelineZoom } from '../app/commands';
+import { commands, formatKeys, FPS_HELP, setPref, setTimelineZoom } from '../app/commands';
 import { useDismiss, usePopoverPosition } from '../app/controls';
 import { Icon } from '../app/icons';
 import { play, stop } from './playback';
@@ -33,23 +33,24 @@ function FpsControl() {
   const btn = useRef<HTMLButtonElement | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
   const pos = usePopoverPosition(open ? btn.current : null, ref);
-  useDismiss(ref, () => setOpen(false), btn.current);
+  useDismiss(ref, () => setOpen(false), btn.current, open);
   useEffect(() => setCustom(String(fps)), [fps]);
   const set = (f: number) => { commit('Frame rate', (p) => (p.fps === f ? p : { ...p, fps: f })); setOpen(false); };
   return (
     <>
-      <button ref={btn} className="btn sm fps-btn" aria-haspopup="dialog" aria-expanded={open} aria-label={`Frame rate ${fps} frames per second. Change`} onClick={() => setOpen(!open)}>{fps} fps</button>
+      <button ref={btn} className="btn sm fps-btn" aria-haspopup="dialog" aria-expanded={open} aria-label={`Frame rate ${fps} frames per second. Change`}
+        data-tip="Frame rate" data-tip-desc="How many frames play per second. Click to choose a preset or type a custom rate." onClick={() => setOpen(!open)}>{fps} fps</button>
       {open && (
         <div ref={ref} className="popover" role="dialog" aria-label="Frame rate" style={{ left: pos.left, top: pos.top, width: 220 }}>
           <h4>Frame rate</h4>
           <div className="grid3">
-            {FPS_PRESETS.map((f) => <button key={f} className="btn sm" aria-pressed={f === fps} style={f === fps ? { borderColor: 'var(--accent)', color: 'var(--accent-strong)' } : undefined} onClick={() => set(f)}>{f}</button>)}
+            {FPS_PRESETS.map((f) => <button key={f} className="btn sm" aria-pressed={f === fps} style={f === fps ? { borderColor: 'var(--accent)', color: 'var(--accent-strong)' } : undefined} data-tip={`${f} fps`} data-tip-desc={FPS_HELP[f] ?? `Play ${f} frames per second.`} onClick={() => set(f)}>{f}</button>)}
           </div>
           <div className="row">
             <input className="input" inputMode="numeric" aria-label="Custom frame rate (whole number 1-120)" value={custom}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCustom(e.target.value.replace(/[^\d]/g, ''))}
               onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') { const v = parseInt(custom, 10); if (v >= 1 && v <= 120) set(v); } }} />
-            <button className="btn sm primary" onClick={() => { const v = parseInt(custom, 10); if (v >= 1 && v <= 120) set(v); }}>Set</button>
+            <button className="btn sm primary" data-tip="Set frame rate" data-tip-desc="Use the custom rate typed here (1–120 fps)." onClick={() => { const v = parseInt(custom, 10); if (v >= 1 && v <= 120) set(v); }}>Set</button>
           </div>
           <p className="hint">Changes playback speed and export duration. Frame numbers stay the same.</p>
         </div>
@@ -74,7 +75,7 @@ function LayerRow({ layer, index, total, active, effVisible, onDragStart, dropHi
       style={{ height: rowHeight() }}
       onClick={() => store.set({ activeLayerId: layer.id })}
     >
-      <span className="layer-color" style={{ background: cssColor(layer.color) }} aria-hidden="true" title="Drag to reorder" onPointerDown={(e: React.PointerEvent<HTMLSpanElement>) => onDragStart(e, layer.id)} />
+      <span className="layer-color" style={{ background: cssColor(layer.color) }} aria-hidden="true" data-tip="Layer color" data-tip-desc="Drag to move this layer up or down in the stack." onPointerDown={(e: React.PointerEvent<HTMLSpanElement>) => onDragStart(e, layer.id)} />
       <span className="layer-name" onDoubleClick={() => setEditing(true)}>
         {editing ? (
           <input autoFocus aria-label="Layer name" value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
@@ -82,15 +83,15 @@ function LayerRow({ layer, index, total, active, effVisible, onDragStart, dropHi
             onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { e.stopPropagation(); if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); if (e.key === 'Escape') { setName(layer.name); setEditing(false); } }} />
         ) : layer.name}
       </span>
-      <button className={`icon-btn sm${!layer.visible ? ' off' : ''}`} aria-pressed={!layer.visible} aria-label={layer.visible ? `Hide ${layer.name}` : `Show ${layer.name}`} title={layer.visible ? 'Hide layer' : 'Show layer'}
+      <button className={`icon-btn sm${!layer.visible ? ' off' : ''}`} aria-pressed={!layer.visible} aria-label={layer.visible ? `Hide ${layer.name}` : `Show ${layer.name}`} data-tip={layer.visible ? 'Hide layer' : 'Show layer'} data-tip-desc={layer.visible ? 'Hide this layer on the stage and in exports.' : 'Make this layer visible again.'}
         onClick={(e: React.MouseEvent) => { e.stopPropagation(); cmdUpdateLayer(layer.id, { visible: !layer.visible }, layer.visible ? 'Hide layer' : 'Show layer'); }}>
         <Icon name={layer.visible ? 'eye' : 'eyeOff'} size={16} />
       </button>
-      <button className={`icon-btn sm${layer.locked ? ' off' : ''}`} aria-pressed={layer.locked} aria-label={layer.locked ? `Unlock ${layer.name}` : `Lock ${layer.name}`} title={layer.locked ? 'Unlock layer' : 'Lock layer'}
+      <button className={`icon-btn sm${layer.locked ? ' off' : ''}`} aria-pressed={layer.locked} aria-label={layer.locked ? `Unlock ${layer.name}` : `Lock ${layer.name}`} data-tip={layer.locked ? 'Unlock layer' : 'Lock layer'} data-tip-desc={layer.locked ? 'Allow drawing and editing on this layer again.' : 'Protect this layer from accidental edits. It stays visible.'}
         onClick={(e: React.MouseEvent) => { e.stopPropagation(); cmdUpdateLayer(layer.id, { locked: !layer.locked }, layer.locked ? 'Unlock layer' : 'Lock layer'); }}>
         <Icon name={layer.locked ? 'lock' : 'unlock'} size={16} />
       </button>
-      <button className="icon-btn sm" aria-pressed={layer.solo} aria-label={layer.solo ? `Unsolo ${layer.name}` : `Solo ${layer.name}`} title="Solo: show only soloed layers"
+      <button className="icon-btn sm" aria-pressed={layer.solo} aria-label={layer.solo ? `Unsolo ${layer.name}` : `Solo ${layer.name}`} data-tip={layer.solo ? 'Unsolo layer' : 'Solo layer'} data-tip-desc="Show only soloed layers so you can focus on them. Turn solo off on every layer to see all layers."
         onClick={(e: React.MouseEvent) => { e.stopPropagation(); toggleSolo(layer.id); }}>
         <Icon name="solo" size={16} />
       </button>
@@ -369,13 +370,13 @@ export function Timeline() {
       <div className="tl-resize" onPointerDown={onResize} role="separator" aria-orientation="horizontal" aria-label="Resize timeline" />
       <div className="tl-toolbar" role="toolbar" aria-label="Timeline controls">
         <div className="tl-group">
-          <button className="icon-btn sm" aria-label={`First frame (${formatKeys(['Home'])})`} data-tip="First frame" data-tip-pos="bottom" onClick={() => goToFrame(0)}><Icon name="first" size={16} /></button>
-          <button className="icon-btn sm" aria-label={`Previous frame (${formatKeys([','])})`} data-tip="Previous frame  ," data-tip-pos="bottom" onClick={() => goToFrame(s.frame - 1)}><Icon name="stepBack" size={16} /></button>
-          <button className="icon-btn sm" aria-label={s.playing ? 'Pause (Enter)' : 'Play (Enter)'} aria-pressed={s.playing} data-tip={s.playing ? 'Pause  Enter' : 'Play  Enter'} data-tip-pos="bottom" onClick={() => (s.playing ? stop() : play())}><Icon name={s.playing ? 'pause' : 'play'} size={16} /></button>
-          <button className="icon-btn sm" aria-label={`Next frame (${formatKeys(['.'])})`} data-tip="Next frame  ." data-tip-pos="bottom" onClick={() => goToFrame(s.frame + 1)}><Icon name="stepFwd" size={16} /></button>
-          <button className="icon-btn sm" aria-label={`Last frame (${formatKeys(['End'])})`} data-tip="Last frame" data-tip-pos="bottom" onClick={() => goToFrame(p.durationFrames - 1)}><Icon name="last" size={16} /></button>
-          <button className="icon-btn sm" aria-label="Loop playback" aria-pressed={p.preferences.loopPlayback} data-tip="Loop" data-tip-pos="bottom" onClick={() => setPref({ loopPlayback: !p.preferences.loopPlayback })}><Icon name="loop" size={16} /></button>
-          <button className="icon-btn sm" aria-label="Onion skin" aria-pressed={p.preferences.onionSkin} data-tip="Onion skin" data-tip-pos="bottom" onClick={() => setPref({ onionSkin: !p.preferences.onionSkin })}><Icon name="onion" size={16} /></button>
+          <button className="icon-btn sm" aria-label={`First frame (${formatKeys(['Home'])})`} data-tip="First frame" data-tip-keys={formatKeys(['Home'])} data-tip-desc={commands['tl.first'].help} onClick={() => goToFrame(0)}><Icon name="first" size={16} /></button>
+          <button className="icon-btn sm" aria-label={`Previous frame (${formatKeys([','])})`} data-tip="Previous frame" data-tip-keys="," data-tip-desc={commands['tl.prev'].help} onClick={() => goToFrame(s.frame - 1)}><Icon name="stepBack" size={16} /></button>
+          <button className="icon-btn sm" aria-label={s.playing ? 'Pause (Enter)' : 'Play (Enter)'} aria-pressed={s.playing} data-tip={s.playing ? 'Pause' : 'Play'} data-tip-keys={formatKeys(['Enter'])} data-tip-desc={s.playing ? 'Stop playback on the current frame.' : 'Play the animation from the current frame.'} onClick={() => (s.playing ? stop() : play())}><Icon name={s.playing ? 'pause' : 'play'} size={16} /></button>
+          <button className="icon-btn sm" aria-label={`Next frame (${formatKeys(['.'])})`} data-tip="Next frame" data-tip-keys="." data-tip-desc={commands['tl.next'].help} onClick={() => goToFrame(s.frame + 1)}><Icon name="stepFwd" size={16} /></button>
+          <button className="icon-btn sm" aria-label={`Last frame (${formatKeys(['End'])})`} data-tip="Last frame" data-tip-keys={formatKeys(['End'])} data-tip-desc={commands['tl.last'].help} onClick={() => goToFrame(p.durationFrames - 1)}><Icon name="last" size={16} /></button>
+          <button className="icon-btn sm" aria-label="Loop playback" aria-pressed={p.preferences.loopPlayback} data-tip="Loop playback" data-tip-desc={commands['tl.loop'].help} onClick={() => setPref({ loopPlayback: !p.preferences.loopPlayback })}><Icon name="loop" size={16} /></button>
+          <button className="icon-btn sm" aria-label="Onion skin" aria-pressed={p.preferences.onionSkin} data-tip="Onion skin" data-tip-keys={formatKeys(['Alt+Shift+O'])} data-tip-desc={commands['view.onion'].help} onClick={() => setPref({ onionSkin: !p.preferences.onionSkin })}><Icon name="onion" size={16} /></button>
         </div>
         <div className="tl-group">
           <FrameField frame={s.frame} max={p.durationFrames} />
@@ -384,18 +385,18 @@ export function Timeline() {
           <DurationField />
         </div>
         <div className="tl-group">
-          <button className="icon-btn sm" aria-label={`Insert frame (${formatKeys(['F5'])})`} data-tip="Insert frame  F5" data-tip-pos="bottom" onClick={cmdInsertFrame}><Icon name="frameAdd" size={16} /></button>
-          <button className="icon-btn sm" aria-label={`Duplicate frame (${formatKeys(['F6'])})`} data-tip="Duplicate frame  F6" data-tip-pos="bottom" onClick={cmdDuplicateFrame}><Icon name="frameDup" size={16} /></button>
-          <button className="icon-btn sm" aria-label={`Add blank frame (${formatKeys(['F7'])})`} data-tip="Add blank frame  F7" data-tip-pos="bottom" onClick={cmdBlankFrame}><Icon name="frameBlank" size={16} /></button>
-          <button className="icon-btn sm" aria-label={`Delete frame (${formatKeys(['Shift+F5'])})`} data-tip="Delete frame(s)  Shift+F5" data-tip-pos="bottom" onClick={cmdDeleteFrames}><Icon name="frameDel" size={16} /></button>
-          <button className="icon-btn sm" aria-label={`Add keyframe to selection (${formatKeys(['F9'])})`} data-tip="Add keyframe  F9" data-tip-pos="bottom" onClick={cmdAddKeyframe}><Icon name="keyframe" size={16} /></button>
-          <button className="icon-btn sm" aria-label={`Create motion tween (${formatKeys(['Shift+T'])})`} data-tip="Create motion tween  Shift+T" data-tip-pos="bottom" onClick={cmdCreateTween}><Icon name="tween" size={16} /></button>
+          <button className="icon-btn sm" aria-label={`Insert frame (${formatKeys(['F5'])})`} data-tip="Insert frame" data-tip-keys="F5" data-tip-desc={commands['tl.insertFrame'].help} onClick={cmdInsertFrame}><Icon name="frameAdd" size={16} /></button>
+          <button className="icon-btn sm" aria-label={`Duplicate frame (${formatKeys(['F6'])})`} data-tip="Duplicate frame" data-tip-keys="F6" data-tip-desc={commands['tl.duplicateFrame'].help} onClick={cmdDuplicateFrame}><Icon name="frameDup" size={16} /></button>
+          <button className="icon-btn sm" aria-label={`Add blank frame (${formatKeys(['F7'])})`} data-tip="Add blank frame" data-tip-keys="F7" data-tip-desc={commands['tl.blankFrame'].help} onClick={cmdBlankFrame}><Icon name="frameBlank" size={16} /></button>
+          <button className="icon-btn sm" aria-label={`Delete frame (${formatKeys(['Shift+F5'])})`} data-tip="Delete frames" data-tip-keys={formatKeys(['Shift+F5'])} data-tip-desc={commands['tl.deleteFrame'].help} onClick={cmdDeleteFrames}><Icon name="frameDel" size={16} /></button>
+          <button className="icon-btn sm" aria-label={`Add keyframe to selection (${formatKeys(['F9'])})`} data-tip="Add keyframe" data-tip-keys="F9" data-tip-desc={commands['tl.addKey'].help} onClick={cmdAddKeyframe}><Icon name="keyframe" size={16} /></button>
+          <button className="icon-btn sm" aria-label={`Create motion tween (${formatKeys(['Shift+T'])})`} data-tip="Create motion tween" data-tip-keys={formatKeys(['Shift+T'])} data-tip-desc={commands['tl.tween'].help} onClick={cmdCreateTween}><Icon name="tween" size={16} /></button>
         </div>
         <div className="tl-zoom">
           <Icon name="minus" size={14} />
-          <input type="range" min={4} max={48} step={1} value={ppf} aria-label={`Timeline zoom, ${Math.round(ppf)} pixels per frame`} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTimelineZoom(Number(e.target.value))} />
+          <input type="range" min={4} max={48} step={1} value={ppf} aria-label={`Timeline zoom, ${Math.round(ppf)} pixels per frame`} data-tip="Timeline zoom" data-tip-desc="Drag to make frames wider or narrower. The = and - keys do the same." onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTimelineZoom(Number(e.target.value))} />
           <Icon name="plus" size={14} />
-          <button className="icon-btn sm" aria-label="Fit selection in timeline (Shift+F)" data-tip="Fit  Shift+F" data-tip-pos="bottom" onClick={() => window.dispatchEvent(new Event('studio:timeline-fit'))}><Icon name="fit" size={14} /></button>
+          <button className="icon-btn sm" aria-label="Fit selection in timeline (Shift+F)" data-tip="Fit timeline" data-tip-keys={formatKeys(['Shift+F'])} data-tip-desc={commands['tl.fit'].help} onClick={() => window.dispatchEvent(new Event('studio:timeline-fit'))}><Icon name="fit" size={14} /></button>
         </div>
       </div>
       <div className="tl-body" onWheel={onWheel}>
@@ -414,11 +415,11 @@ export function Timeline() {
             aria-label={`Frames. Frame ${s.frame + 1} of ${p.durationFrames}. Arrow keys: left and right change frame, up and down change layer. Shift-click selects a range.`} />
         </div>
         <div className="tl-layer-actions">
-          <button className="icon-btn sm" aria-label="Add layer" data-tip="Add layer" onClick={cmdAddLayer}><Icon name="plus" size={16} /></button>
-          <button className="icon-btn sm" aria-label="Duplicate layer" data-tip="Duplicate layer" onClick={() => cmdDuplicateLayer()}><Icon name="copy" size={16} /></button>
-          <button className="icon-btn sm" aria-label="Move layer up" data-tip="Move layer up" disabled={activeIdx >= p.layers.length - 1} onClick={() => cmdMoveLayer(s.active, activeIdx + 1)}><Icon name="up" size={16} /></button>
-          <button className="icon-btn sm" aria-label="Move layer down" data-tip="Move layer down" disabled={activeIdx <= 0} onClick={() => cmdMoveLayer(s.active, activeIdx - 1)}><Icon name="down" size={16} /></button>
-          <button className="icon-btn sm" aria-label="Delete layer" data-tip="Delete layer" disabled={p.layers.length <= 1} onClick={() => cmdDeleteLayer()}><Icon name="trash" size={16} /></button>
+          <button className="icon-btn sm" aria-label="Add layer" data-tip="Add layer" data-tip-desc={commands['tl.addLayer'].help} onClick={cmdAddLayer}><Icon name="plus" size={16} /></button>
+          <button className="icon-btn sm" aria-label="Duplicate layer" data-tip="Duplicate layer" data-tip-desc={commands['tl.duplicateLayer'].help} onClick={() => cmdDuplicateLayer()}><Icon name="copy" size={16} /></button>
+          <button className="icon-btn sm" aria-label="Move layer up" data-tip="Move layer up" data-tip-desc="Move the active layer above the one over it, so it draws on top." disabled={activeIdx >= p.layers.length - 1} onClick={() => cmdMoveLayer(s.active, activeIdx + 1)}><Icon name="up" size={16} /></button>
+          <button className="icon-btn sm" aria-label="Move layer down" data-tip="Move layer down" data-tip-desc="Move the active layer below the one under it, so it draws behind." disabled={activeIdx <= 0} onClick={() => cmdMoveLayer(s.active, activeIdx - 1)}><Icon name="down" size={16} /></button>
+          <button className="icon-btn sm" aria-label="Delete layer" data-tip="Delete layer" data-tip-desc={commands['tl.deleteLayer'].help} disabled={p.layers.length <= 1} onClick={() => cmdDeleteLayer()}><Icon name="trash" size={16} /></button>
         </div>
         <div className="tl-hscroll" ref={hscroll} onScroll={(e: React.UIEvent<HTMLDivElement>) => setScrollX((e.currentTarget as HTMLDivElement).scrollLeft)}>
           <div style={{ width: totalW }} />
@@ -435,7 +436,7 @@ function FrameField({ frame, max }: { frame: number; max: number }) {
   const [focus, setFocus] = useState(false);
   useEffect(() => { if (!focus) setV(String(frame + 1)); }, [frame, focus]);
   return (
-    <input className="frame-field" inputMode="numeric" aria-label={`Current frame, 1 to ${max}`} value={v}
+    <input className="frame-field" inputMode="numeric" aria-label={`Current frame, 1 to ${max}`} data-tip="Current frame" data-tip-desc="Type a frame number and press Enter to jump there." value={v}
       onFocus={(e: React.FocusEvent<HTMLInputElement>) => { setFocus(true); e.currentTarget.select(); }}
       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setV(e.target.value.replace(/[^\d]/g, ''))}
       onBlur={() => { setFocus(false); const n = parseInt(v, 10); if (n >= 1) goToFrame(n - 1); }}
@@ -458,7 +459,7 @@ function DurationField() {
   return (
     <label className="row" style={{ gap: 4, fontSize: 12, color: 'var(--text-2)' }}>
       <span>Length</span>
-      <input className="frame-field" inputMode="numeric" aria-label="Duration in frames" value={v}
+      <input className="frame-field" inputMode="numeric" aria-label="Duration in frames" data-tip="Length" data-tip-desc="Total number of frames in the animation. Type a new length and press Enter." value={v}
         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setV(e.target.value.replace(/[^\d]/g, ''))}
         onBlur={apply} onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }} />
     </label>

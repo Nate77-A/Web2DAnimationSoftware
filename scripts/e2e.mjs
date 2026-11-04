@@ -254,6 +254,110 @@ await page.evaluate(() => window.__studio.set({ currentFrame: 0, selection: [] }
 await page.waitForTimeout(100);
 await shot('04-final');
 
+// Path edit mode (fresh context, so earlier steps do not affect it)
+{
+  const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const pg = await ctx2.newPage();
+  pg.on('console', (m) => { if (m.type() === 'error') errors.push('path-edit: ' + m.text()); });
+  pg.on('pageerror', (e) => errors.push('path-edit pageerror: ' + e.message));
+  await pg.goto('http://localhost:4173/');
+  await pg.waitForSelector('.stage canvas');
+  await pg.waitForTimeout(400);
+  const st = () => pg.evaluate(() => window.__studio.get());
+  const objs = async () => (await st()).project.layers.flatMap((l) => l.objectTracks.flatMap((c) => c.objects));
+  const box = await pg.locator('.stage').boundingBox();
+  // document point -> page point
+  const P = async (x, y) => { const v = (await st()).viewport; return [box.x + v.panX + x * v.zoom, box.y + v.panY + y * v.zoom]; };
+  // local anchor -> document point (no rotation/scale in these checks)
+  const docOf = (o, p) => [p[0] - o.transform.pivotX + o.transform.x, p[1] - o.transform.pivotY + o.transform.y];
+  const drag = async (from, to) => {
+    await pg.mouse.move(...(await P(...from))); await pg.mouse.down();
+    await pg.mouse.move(...(await P(...to)), { steps: 8 }); await pg.mouse.up();
+  };
+  const hold = async (at) => { await pg.mouse.move(...(await P(...at))); await pg.mouse.down(); await pg.waitForTimeout(800); await pg.mouse.up(); };
+  const lastLabel = async () => { const p = (await st()).past; return p[p.length - 1]?.label; };
+  const near = (a, b, tol = 1.5) => Math.hypot(a[0] - b[0], a[1] - b[1]) <= tol;
+
+  await pg.keyboard.press('u');
+  await drag([400, 300], [800, 600]);
+  const rect = (await objs())[0];
+  await pg.keyboard.press('v');
+  await pg.mouse.dblclick(...(await P(600, 300)));
+  check('double-click a shape enters path edit mode', (await st()).pathEdit?.id === rect.id && (await pg.locator('.pe-anchor').count()) === 4);
+
+  await drag([600, 300], [600, 200]);
+  let o = (await objs())[0];
+  const [a0, a1] = [o.geometry.segments[0], o.geometry.segments[1]];
+  const mid = (() => { // cubic point at t = 0.5 of the bent top edge
+    const p0 = a0.p, p1 = [a0.p[0] + a0.ho[0], a0.p[1] + a0.ho[1]], p2 = [a1.p[0] + a1.hi[0], a1.p[1] + a1.hi[1]], p3 = a1.p;
+    return [0, 1].map((k) => (p0[k] + 3 * p1[k] + 3 * p2[k] + p3[k]) / 8);
+  })();
+  check('dragging the path bends it under the pointer', o.kind === 'path' && near(docOf(o, mid), [600, 200], 3) && (await lastLabel()) === 'Bend path',
+    `${o.kind} mid=${docOf(o, mid).map((n) => n.toFixed(1))}`);
+
+  await drag([400, 300], [350, 250]);
+  o = (await objs())[0];
+  check('dragging an anchor moves it', near(docOf(o, o.geometry.segments[0].p), [350, 250]) && (await lastLabel()) === 'Move anchor');
+
+  await hold([800, 600]);
+  o = (await objs())[0];
+  const s2 = o.geometry.segments[2];
+  check('holding a sharp anchor makes it smooth', Math.hypot(...s2.ho) > 1 && Math.hypot(...s2.hi) > 1 && (await lastLabel()) === 'Make anchor smooth');
+
+  const hoEnd = docOf(o, [s2.p[0] + s2.ho[0], s2.p[1] + s2.ho[1]]);
+  await drag(hoEnd, [hoEnd[0] - 40, hoEnd[1] + 60]);
+  o = (await objs())[0];
+  const t2 = o.geometry.segments[2];
+  const cross = (t2.hi[0] * t2.ho[1] - t2.hi[1] * t2.ho[0]) / (Math.hypot(...t2.hi) * Math.hypot(...t2.ho));
+  check('dragging a handle keeps a smooth anchor smooth', Math.abs(cross) < 0.02 && (await lastLabel()) === 'Adjust handle', `cross=${cross.toFixed(3)}`);
+
+  await hold([800, 600]);
+  o = (await objs())[0];
+  check('holding a curved anchor makes it sharp', Math.hypot(...o.geometry.segments[2].ho) === 0 && Math.hypot(...o.geometry.segments[2].hi) === 0 && (await lastLabel()) === 'Make anchor sharp');
+  await pg.screenshot({ path: `${SHOTS}/05-path-edit.png` });
+
+  // Double-click the right edge (straight, x = 800 from y 300 to 600) to add an anchor there.
+  const count0 = (await objs())[0].geometry.segments.length;
+  await pg.mouse.dblclick(...(await P(800, 450)));
+  o = (await objs())[0];
+  const added = o.geometry.segments[(await st()).pathEdit.selected[0]];
+  check('double-clicking the path adds an anchor there', o.geometry.segments.length === count0 + 1 && near(docOf(o, added.p), [800, 450], 3)
+    && (await lastLabel()) === 'Add anchor', `${count0} -> ${o.geometry.segments.length}`);
+
+  await pg.mouse.dblclick(...(await P(800, 450)));
+  check('double-clicking an anchor shows the X button', (await pg.locator('.pe-delete-pop button').count()) === 1);
+  await pg.mouse.click(...(await P(1200, 900)));
+  check('clicking elsewhere hides the X button and changes nothing',
+    (await pg.locator('.pe-delete-pop').count()) === 0 && (await objs())[0].geometry.segments.length === count0 + 1 && (await st()).pathEdit !== null);
+
+  await pg.mouse.dblclick(...(await P(800, 450)));
+  await pg.locator('.pe-delete-pop button').click();
+  check('the X button deletes the anchor', (await objs())[0].geometry.segments.length === count0 && (await lastLabel()) === 'Delete anchor'
+    && (await pg.locator('.pe-delete-pop').count()) === 0);
+
+  await pg.keyboard.press('Escape');
+  check('Esc leaves path edit mode', (await st()).pathEdit === null);
+
+  // Brush stroke: edit its centerline
+  await pg.keyboard.press('b');
+  await pg.mouse.move(...(await P(300, 800))); await pg.mouse.down();
+  for (let i = 0; i <= 30; i++) await pg.mouse.move(...(await P(300 + i * 20, 800)));
+  await pg.mouse.up();
+  const strokeBefore = (await objs()).find((x) => x.brush);
+  await pg.keyboard.press('v');
+  await pg.mouse.dblclick(...(await P(600, 800)));
+  check('double-click a brush stroke edits its centerline', (await st()).pathEdit?.id === strokeBefore.id && (await pg.locator('.pe-anchor').count()) >= 2);
+  await drag([600, 800], [600, 700]);
+  const stroke = (await objs()).find((x) => x.id === strokeBefore.id);
+  const yMin = Math.min(...stroke.brush.samples.map((q) => q[1]));
+  check('bending a brush stroke re-draws it along the new centerline', !!stroke.brush.spine && docOf(stroke, [0, yMin])[1] < 720 && stroke.geometry.closed,
+    `min y ${docOf(stroke, [0, yMin])[1].toFixed(1)}`);
+  await pg.keyboard.press('ControlOrMeta+z');
+  const undone = (await objs()).find((x) => x.id === strokeBefore.id);
+  check('undo restores the brush stroke', !undone.brush.spine && undone.brush.samples.length === strokeBefore.brush.samples.length);
+  await ctx2.close();
+}
+
 check('no console errors', errors.length === 0, errors.join(' | '));
 await browser.close();
 server.close();

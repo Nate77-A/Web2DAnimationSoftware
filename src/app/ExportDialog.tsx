@@ -103,17 +103,22 @@ export function ExportDialog({ initialTab }: { initialTab?: Tab }) {
 
   const busy = !!progress;
   const blocked = (tab === 'mp4' && !mp4Support?.supported) || (tab === 'svg' && svgMode === 'css' && !!svgAnalysis?.cssUnsupported.length);
-  const tabs: { id: Tab; label: string }[] = [{ id: 'png', label: 'PNG' }, { id: 'gif', label: 'Animated GIF' }, { id: 'mp4', label: 'MP4 video' }, { id: 'svg', label: 'SVG' }];
+  const tabs: { id: Tab; label: string; tip: string }[] = [
+    { id: 'png', label: 'PNG', tip: 'Still images: one frame, or every frame as numbered PNGs in a ZIP. Supports transparency.' },
+    { id: 'gif', label: 'Animated GIF', tip: 'A looping animation that plays almost anywhere. Limited to 256 colors per frame.' },
+    { id: 'mp4', label: 'MP4 video', tip: 'A standard video file for sharing and video editors. No transparency.' },
+    { id: 'svg', label: 'SVG', tip: 'A scalable vector animation for web pages. Stays sharp at any size.' },
+  ];
 
   return (
     <div className="dialog wide" role="dialog" aria-modal="true" aria-labelledby="export-title">
       <div className="dialog-head">
         <Icon name="export" />
         <h2 id="export-title">Export</h2>
-        <button className="icon-btn sm" aria-label="Close export dialog" onClick={close}><Icon name="close" size={16} /></button>
+        <button className="icon-btn sm" aria-label="Close export dialog" data-tip-desc="Close the export window without exporting." onClick={close}><Icon name="close" size={16} /></button>
       </div>
       <div className="tabs" role="tablist" aria-label="Export format">
-        {tabs.map((t) => <button key={t.id} role="tab" aria-selected={tab === t.id} disabled={busy} onClick={() => { setTab(t.id); setError(null); }}>{t.label}</button>)}
+        {tabs.map((t) => <button key={t.id} role="tab" aria-selected={tab === t.id} data-tip={t.label} data-tip-desc={t.tip} disabled={busy} onClick={() => { setTab(t.id); setError(null); }}>{t.label}</button>)}
       </div>
       <div className="dialog-body" role="tabpanel">
         <div className="grid2">
@@ -171,10 +176,10 @@ export function ExportDialog({ initialTab }: { initialTab?: Tab }) {
           <>
             <div className="grid2">
               <Field label="Animation mode">
-                <Seg label="SVG animation mode" value={svgMode} onChange={setSvgMode} options={[{ value: 'css', label: 'CSS only' }, { value: 'js', label: 'CSS + JavaScript' }]} />
+                <Seg label="SVG animation mode" value={svgMode} onChange={setSvgMode} options={[{ value: 'css', label: 'CSS only', title: 'CSS only', tip: 'Animates with CSS alone. Works where scripts are blocked, but cannot swap frame-by-frame drawings.' }, { value: 'js', label: 'CSS + JavaScript', title: 'CSS + JavaScript', tip: 'Adds a small script so frame-by-frame drawings play too. Needs scripts to be allowed where it is shown.' }]} />
               </Field>
               <Field label="Sizing">
-                <Seg label="SVG sizing" value={svgSizing} onChange={setSvgSizing} options={[{ value: 'fixed', label: 'Fixed' }, { value: 'responsive', label: 'Responsive' }]} />
+                <Seg label="SVG sizing" value={svgSizing} onChange={setSvgSizing} options={[{ value: 'fixed', label: 'Fixed', title: 'Fixed size', tip: 'The SVG keeps the exact pixel width and height you set.' }, { value: 'responsive', label: 'Responsive', title: 'Responsive', tip: 'The SVG stretches to fit its container, keeping its proportions.' }]} />
               </Field>
             </div>
             <div className="row"><Check label="Crop to artboard" checked={crop} onChange={setCrop} />{frames > 1 && <Check label="Loop" checked={svgLoop} onChange={setSvgLoop} />}</div>
@@ -228,8 +233,8 @@ export function ExportDialog({ initialTab }: { initialTab?: Tab }) {
       <div className="dialog-foot">
         <span className="hint" style={{ alignSelf: 'center' }}>Exports render from the project data, not the screen.</span>
         <div className="spacer" />
-        {busy ? <button className="btn" onClick={() => abort.current?.abort()}>Cancel export</button> : <button className="btn ghost" onClick={close}>Close</button>}
-        <button className="btn primary" onClick={() => void run()} disabled={busy || blocked}>Export {tab.toUpperCase()}</button>
+        {busy ? <button className="btn" data-tip-desc="Stop the export in progress." onClick={() => abort.current?.abort()}>Cancel export</button> : <button className="btn ghost" data-tip-desc="Close the export window without exporting." onClick={close}>Close</button>}
+        <button className="btn primary" data-tip={`Export ${tab.toUpperCase()}`} data-tip-desc="Render the animation with these settings and download the file." onClick={() => void run()} disabled={busy || blocked}>Export {tab.toUpperCase()}</button>
       </div>
     </div>
   );

@@ -58,6 +58,8 @@ export const brushMetaSchema = z.object({
   hasPressure: z.boolean(),
   hasTilt: z.boolean(),
   settings: brushSettingsSchema,
+  /** Editable centerline (path edit mode). Optional: absent on strokes that were never point-edited. */
+  spine: z.array(segmentSchema).optional(),
 });
 
 export const textDataSchema = z.object({

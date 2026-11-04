@@ -2,7 +2,8 @@
 
 - Eraser splits brush strokes or deletes objects; pixel erasing of bitmaps is not available.
 - Paint Bucket fills closed vector shapes only.
-- Pen paths are created with the Pen tool; editing existing Bézier anchors after creation is not yet available (transform the whole path instead).
+- Editing a shape's points turns it into a plain path, so its shape options (corner radius, polygon sides) no longer apply.
+- Brush strokes are edited along a fitted centerline; the stroke is re-drawn along it, so very fine wobbles in the original stroke are smoothed out by the first edit.
 - Multi-selection scaling of rotated objects is approximate (no skew in the transform model).
 - MP4 requires WebCodecs H.264 (Chrome/Edge 94+, Safari 16.4+); no alpha.
 - GIF: 256 colors per frame, 1-bit transparency, browsers clamp very short frame delays.

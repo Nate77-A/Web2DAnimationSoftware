@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased — spec stack swap-in
+- Path edit mode: double-click a pen path, shape or brush stroke with the Select tool (or use **Edit points** in Properties) to edit its points. Drag anchors (Shift-click for several; Shift-drag locks to an axis), drag handles (smooth anchors stay smooth; Alt breaks them), drag the path between two anchors to bend it, and hold an anchor for half a second to toggle it between sharp and smooth. Double-click the path to add an anchor there (the shape doesn't change), or double-click an anchor to show an X button that deletes it; clicking anywhere else hides the button. Delete also removes selected anchors, arrow keys nudge them, and Esc/Enter or clicking away finishes. Shapes become paths on their first edit. Brush strokes are edited along a fitted centerline (stored as the new optional `brush.spine` field) and re-drawn with their original pressure.
+- Fix: Esc never reached the app while the timeline was visible (the closed frame-rate popover swallowed it), so it could not cancel a pen path, finish text editing or deselect.
+- Fix: long stage-header hints could push the window layout wider than the screen.
+- Hover help: every button now shows a tooltip with its name, keyboard shortcut and a one-line explanation of what it does. Tooltips also appear on keyboard focus and stay inside the window (`src/app/Tooltip.tsx`; buttons use `data-tip`, `data-tip-keys` and `data-tip-desc`).
 - Repo layout: the project now lives at the repository root (previously `WorkingFiles/`). The spec documents moved to `docs/spec/`, and generated builds plus `.DS_Store` files were removed. Added `.gitignore`.
 - Deploy: a GitHub Actions workflow publishes the PWA build to GitHub Pages.
 - Scripts: `typecheck` also checks the tests; added `test:visual`. The e2e select-all keystroke now works on macOS.

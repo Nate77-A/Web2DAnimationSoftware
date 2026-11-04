@@ -17,7 +17,9 @@ function confirmDiscard(action: string, run: () => void) {
       title: `${action}?`,
       body: `"${s.project.name}" has changes that have not been saved to a project file. They remain in this browser's local storage (Projects), but are not in any downloaded file.`,
       confirmLabel: action,
+      confirmHelp: 'Continue without downloading a project file. Your work stays in this browser.',
       altLabel: 'Save file first',
+      altHelp: 'Download a .anims project file first, then continue.',
       onAlt: () => { void saveProjectFile().then(run); },
       onConfirm: run,
     },
@@ -67,7 +69,7 @@ export function saveProjectAs() {
   const p = getState().project;
   store.set({
     dialog: {
-      kind: 'prompt', title: 'Save As', label: 'New project name', value: `${p.name} copy`, confirmLabel: 'Save As',
+      kind: 'prompt', title: 'Save As', label: 'New project name', value: `${p.name} copy`, confirmLabel: 'Save As', confirmHelp: 'Make a copy of the project under this name and download it.',
       onConfirm: async (name) => {
         const trimmed = name.trim().slice(0, 200);
         if (!trimmed) return;

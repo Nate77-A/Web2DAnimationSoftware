@@ -102,12 +102,12 @@ export function NumberField(props: {
 // ------------------------------------------------------------------ Segmented
 
 export function Seg<T extends string | number>({ label, value, options, onChange }: {
-  label: string; value: T; options: { value: T; label: React.ReactNode; title?: string }[]; onChange: (v: T) => void;
+  label: string; value: T; options: { value: T; label: React.ReactNode; title?: string; tip?: string }[]; onChange: (v: T) => void;
 }) {
   return (
     <div className="seg" role="radiogroup" aria-label={label}>
       {options.map((o) => (
-        <button key={String(o.value)} type="button" role="radio" aria-checked={o.value === value} title={o.title} aria-label={o.title}
+        <button key={String(o.value)} type="button" role="radio" aria-checked={o.value === value} aria-label={o.title} data-tip={o.title} data-tip-desc={o.tip}
           onClick={() => onChange(o.value)}>{o.label}</button>
       ))}
     </div>
@@ -144,7 +144,8 @@ export function PaintField({ label, paint, onChange, allowNone = true }: { label
   const btn = useRef<HTMLButtonElement | null>(null);
   return (
     <div className="paint-field">
-      <button ref={btn} type="button" className="paint-chip" aria-label={`${label}: ${describePaint(paint)}. Open color editor`} aria-haspopup="dialog" aria-expanded={open}
+      <button ref={btn} type="button" className="paint-chip" aria-label={`${label}: ${describePaint(paint)}. Open color editor`} aria-haspopup="dialog"
+        data-tip={label} data-tip-desc={`Currently ${describePaint(paint)}. Click to choose a solid color, a gradient or none.`} aria-expanded={open}
         onClick={() => setOpen(!open)}><PaintSwatch paint={paint} /></button>
       <div className="field" style={{ flex: 1 }}>
         <span>{label}</span>
@@ -172,8 +173,10 @@ export function usePopoverPosition(anchor: HTMLElement | null, ref: React.RefObj
   return pos;
 }
 
-export function useDismiss(ref: React.RefObject<HTMLElement | null>, onClose: () => void, anchor?: HTMLElement | null) {
+/** Closes a popover on outside pointerdown or Escape. Pass `active = false` while it is closed, or it swallows Escape. */
+export function useDismiss(ref: React.RefObject<HTMLElement | null>, onClose: () => void, anchor?: HTMLElement | null, active = true) {
   useEffect(() => {
+    if (!active) return;
     const down = (e: PointerEvent) => {
       const t = e.target as Node;
       if (ref.current?.contains(t) || anchor?.contains(t)) return;
@@ -183,7 +186,7 @@ export function useDismiss(ref: React.RefObject<HTMLElement | null>, onClose: ()
     window.addEventListener('pointerdown', down, true);
     window.addEventListener('keydown', key, true);
     return () => { window.removeEventListener('pointerdown', down, true); window.removeEventListener('keydown', key, true); };
-  }, [onClose, anchor]);
+  }, [onClose, anchor, active]);
 }
 
 const DEFAULT_STOPS: ColorStop[] = [{ offset: 0, color: '#3CC8D6FF' }, { offset: 1, color: '#9B7BF2FF' }];
@@ -229,10 +232,12 @@ export function ColorPopover({ anchor, title, paint, onChange, onClose, allowNon
 
   return (
     <div ref={ref} className="popover" role="dialog" aria-label={`${title} color`} style={{ left: pos.left, top: pos.top }}>
-      <h4>{title}<button className="icon-btn sm" aria-label="Close color editor" onClick={onClose}><Icon name="close" size={16} /></button></h4>
+      <h4>{title}<button className="icon-btn sm" aria-label="Close color editor" data-tip-desc="Close the color editor. Your changes are already applied." onClick={onClose}><Icon name="close" size={16} /></button></h4>
       <Seg label="Paint type" value={paint.type} onChange={setType} options={[
-        ...(allowNone ? [{ value: 'none' as const, label: 'None' }] : []),
-        { value: 'solid' as const, label: 'Solid' }, { value: 'linear' as const, label: 'Linear' }, { value: 'radial' as const, label: 'Radial' },
+        ...(allowNone ? [{ value: 'none' as const, label: 'None', tip: 'No color: leaves the fill empty or hides the outline.' }] : []),
+        { value: 'solid' as const, label: 'Solid', tip: 'One flat color.' },
+        { value: 'linear' as const, label: 'Linear', tip: 'A gradient that blends colors along a straight line at an angle you choose.' },
+        { value: 'radial' as const, label: 'Radial', tip: 'A gradient that blends colors outward from the center.' },
       ]} />
       {stops && (
         <div>
@@ -256,6 +261,7 @@ export function ColorPopover({ anchor, title, paint, onChange, onClose, allowNon
                 className="grad-stop"
                 aria-pressed={i === stopIdx}
                 aria-label={`Color stop ${i + 1} at ${Math.round(s.offset * 100)}%. Arrow keys move, Delete removes`}
+                data-tip={`Color stop ${i + 1}`} data-tip-desc="Click to edit this stop's color; drag to move it along the gradient." 
                 style={{ left: `${s.offset * 100}%`, background: cssColor(s.color) }}
                 onPointerDown={(e: React.PointerEvent<HTMLButtonElement>) => {
                   e.stopPropagation();
@@ -282,7 +288,7 @@ export function ColorPopover({ anchor, title, paint, onChange, onClose, allowNon
           <div className="row">
             <NumberField label="Stop position" scrubLabel="Pos" value={sel ? sel.offset * 100 : 0} unit="%" min={0} max={100} precision={0} onChange={(v) => moveStop(stopIdx, v / 100)} />
             {paint.type === 'linear' && <NumberField label="Gradient angle" scrubLabel="∠" value={paint.angle} unit="°" min={-360} max={360} precision={0} onChange={(v) => onChange({ ...paint, angle: v })} />}
-            <button className="icon-btn sm" aria-label="Remove selected stop" disabled={stops.length <= 2} onClick={() => { setStops(stops.filter((_, j) => j !== stopIdx)); setStopIdx(0); }}><Icon name="trash" size={16} /></button>
+            <button className="icon-btn sm" aria-label="Remove selected stop" data-tip-desc="Delete the selected color stop. A gradient needs at least two." disabled={stops.length <= 2} onClick={() => { setStops(stops.filter((_, j) => j !== stopIdx)); setStopIdx(0); }}><Icon name="trash" size={16} /></button>
           </div>
         </div>
       )}
@@ -304,12 +310,12 @@ export function ColorPopover({ anchor, title, paint, onChange, onClose, allowNon
             <div className="field-label" style={{ marginBottom: 4 }}>Recent</div>
             <div className="recent">
               {recent.map((c) => (
-                <button key={c} type="button" aria-label={`Use ${toHex6(c)}`} title={c} onClick={() => { setColor(c); pushRecentColor(c); }}
+                <button key={c} type="button" aria-label={`Use ${toHex6(c)}`} data-tip={`Use ${c}`} data-tip-desc="Apply this recently used color."  onClick={() => { setColor(c); pushRecentColor(c); }}
                   style={{ background: '#fff' }}><i style={{ background: cssColor(c) }} /></button>
               ))}
             </div>
           </div>
-          <button className="btn sm" onClick={() => { pushRecentColor(toHex8(parseHex(activeColor))); }}>Add to recent</button>
+          <button className="btn sm" data-tip-desc="Save the current color to the Recent row for quick reuse." onClick={() => { pushRecentColor(toHex8(parseHex(activeColor))); }}>Add to recent</button>
         </>
       )}
     </div>

@@ -7,6 +7,7 @@ import { Dialogs, Toasts } from './Dialogs';
 import { PropertiesPanel } from './PropertiesPanel';
 import { StageHeader } from './StageHeader';
 import { ToolRail } from './ToolRail';
+import { Tooltip } from './Tooltip';
 import { TopBar } from './TopBar';
 
 export function App() {
@@ -36,6 +37,7 @@ export function App() {
       {s.panels.timeline ? <Timeline /> : <div />}
       <Dialogs />
       <Toasts />
+      <Tooltip />
     </div>
   );
 }

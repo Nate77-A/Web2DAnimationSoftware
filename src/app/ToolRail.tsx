@@ -29,7 +29,10 @@ export function ToolRail() {
             className="icon-btn tool"
             aria-label={`${t.label} (${t.shortcut})`}
             aria-pressed={s.tool === t.id}
-            data-tip={`${t.label}  ${t.shortcut}`}
+            data-tip={t.label}
+            data-tip-keys={t.shortcut}
+            data-tip-desc={t.help}
+            data-tip-pos="right"
             tabIndex={s.tool === t.id ? 0 : -1}
             onClick={() => setTool(t.id)}
             style={s.active === t.id && s.tool !== t.id ? { outline: '1px dashed var(--accent)' } : undefined}
@@ -40,13 +43,13 @@ export function ToolRail() {
       ))}
       <div className="rail-sep" aria-hidden="true" />
       <div className="swatches">
-        <button ref={fillBtn} className="swatch-btn fill" aria-label={`Fill color: ${describePaint(s.fill)}`} data-tip="Fill" aria-haspopup="dialog" aria-expanded={pop === 'fill'}
+        <button ref={fillBtn} className="swatch-btn fill" aria-label={`Fill color: ${describePaint(s.fill)}`} data-tip="Fill color" data-tip-desc="Color used inside new shapes, text and paint-bucket fills. Click to change it." data-tip-pos="right" aria-haspopup="dialog" aria-expanded={pop === 'fill'}
           onClick={() => setPop(pop === 'fill' ? null : 'fill')}><PaintSwatch paint={s.fill} /></button>
-        <button ref={strokeBtn} className="swatch-btn stroke" aria-label={`Stroke color: ${describePaint(s.stroke)}`} data-tip="Stroke (also brush color)" aria-haspopup="dialog" aria-expanded={pop === 'stroke'}
+        <button ref={strokeBtn} className="swatch-btn stroke" aria-label={`Stroke color: ${describePaint(s.stroke)}`} data-tip="Stroke color" data-tip-desc="Color used for outlines and brush strokes. Click to change it." data-tip-pos="right" aria-haspopup="dialog" aria-expanded={pop === 'stroke'}
           onClick={() => setPop(pop === 'stroke' ? null : 'stroke')}><PaintSwatch paint={s.stroke} /></button>
       </div>
       <div className="swatch-mini-row">
-        <button className="icon-btn sm" aria-label={`Swap fill and stroke (${formatKeys(['X'])})`} data-tip="Swap  X" onClick={() => store.set({ fill: s.stroke, stroke: s.fill })}><Icon name="swap" size={14} /></button>
+        <button className="icon-btn sm" aria-label={`Swap fill and stroke (${formatKeys(['X'])})`} data-tip="Swap colors" data-tip-keys="X" data-tip-desc="Exchange the fill and stroke colors." data-tip-pos="right" onClick={() => store.set({ fill: s.stroke, stroke: s.fill })}><Icon name="swap" size={14} /></button>
       </div>
       {pop === 'fill' && <ColorPopover anchor={fillBtn.current} title="Fill" paint={s.fill} onChange={(p) => store.set({ fill: p })} onClose={() => setPop(null)} />}
       {pop === 'stroke' && <ColorPopover anchor={strokeBtn.current} title="Stroke" paint={s.stroke} onChange={(p) => store.set({ stroke: p })} onClose={() => setPop(null)} />}

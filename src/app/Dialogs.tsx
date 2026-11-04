@@ -42,9 +42,9 @@ function ConfirmDialog({ d }: { d: Extract<Dialog, { kind: 'confirm' }> }) {
       <div className="dialog-head"><h2 id="confirm-title">{d.title}</h2></div>
       <div className="dialog-body"><p id="confirm-body" style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'var(--text-2)' }}>{d.body}</p></div>
       <div className="dialog-foot">
-        {d.confirmLabel !== 'OK' && <button className="btn ghost" onClick={close}>Cancel</button>}
-        {d.altLabel && d.onAlt && <button className="btn" onClick={() => { close(); d.onAlt!(); }}>{d.altLabel}</button>}
-        <button className={`btn ${d.danger ? 'danger' : 'primary'}`} autoFocus onClick={() => { close(); d.onConfirm(); }}>{d.confirmLabel}</button>
+        {d.confirmLabel !== 'OK' && <button className="btn ghost" data-tip-desc="Close this message without doing anything." onClick={close}>Cancel</button>}
+        {d.altLabel && d.onAlt && <button className="btn" data-tip-desc={d.altHelp} onClick={() => { close(); d.onAlt!(); }}>{d.altLabel}</button>}
+        <button className={`btn ${d.danger ? 'danger' : 'primary'}`} autoFocus data-tip-desc={d.confirmHelp ?? (d.confirmLabel === 'OK' ? 'Close this message.' : undefined)} onClick={() => { close(); d.onConfirm(); }}>{d.confirmLabel}</button>
       </div>
     </div>
   );
@@ -61,7 +61,7 @@ function PromptDialog({ d }: { d: Extract<Dialog, { kind: 'prompt' }> }) {
           <input className="input" autoFocus value={v} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setV(e.target.value)} onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter') submit(); }} />
         </label>
       </div>
-      <div className="dialog-foot"><button className="btn ghost" onClick={close}>Cancel</button><button className="btn primary" onClick={submit} disabled={!v.trim()}>{d.confirmLabel}</button></div>
+      <div className="dialog-foot"><button className="btn ghost" data-tip-desc="Close without making changes." onClick={close}>Cancel</button><button className="btn primary" data-tip-desc={d.confirmHelp} onClick={submit} disabled={!v.trim()}>{d.confirmLabel}</button></div>
     </div>
   );
 }
@@ -75,8 +75,8 @@ function RecoveryDialog({ d }: { d: Extract<Dialog, { kind: 'recovery' }> }) {
         <p className="hint">The damaged data was kept untouched in local storage and a fresh project was opened, so nothing was overwritten. You can download the raw data for recovery or support.</p>
       </div>
       <div className="dialog-foot">
-        {d.raw && <button className="btn" onClick={() => void downloadBlob(new Blob([d.raw!], { type: 'application/json' }), 'recovered-project-data.json')}>Download raw data</button>}
-        <button className="btn primary" autoFocus onClick={close}>Continue with new project</button>
+        {d.raw && <button className="btn" data-tip-desc="Save the damaged project data as a file so nothing is lost. It can help with manual recovery." onClick={() => void downloadBlob(new Blob([d.raw!], { type: 'application/json' }), 'recovered-project-data.json')}>Download raw data</button>}
+        <button className="btn primary" autoFocus data-tip-desc="Start with a fresh project. The damaged data stays untouched in this browser." onClick={close}>Continue with new project</button>
       </div>
     </div>
   );
@@ -90,7 +90,7 @@ function ProjectsDialog() {
   useEffect(() => { void load(); }, []);
   return (
     <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="proj-title">
-      <div className="dialog-head"><Icon name="folder" /><h2 id="proj-title">Projects in this browser</h2><button className="icon-btn sm" aria-label="Close" onClick={close}><Icon name="close" size={16} /></button></div>
+      <div className="dialog-head"><Icon name="folder" /><h2 id="proj-title">Projects in this browser</h2><button className="icon-btn sm" aria-label="Close" data-tip-desc="Close the projects list." onClick={close}><Icon name="close" size={16} /></button></div>
       <div className="dialog-body">
         <p className="hint" style={{ margin: 0 }}>Projects autosave to this browser’s offline storage. Use File › Save to download a portable .anims file.</p>
         {err && <div className="notice error">{err}</div>}
@@ -100,11 +100,11 @@ function ProjectsDialog() {
             {list.map((p) => (
               <div key={p.id} className={`list-item${p.id === current ? ' current' : ''}`}>
                 <div className="meta"><div>{p.name}</div><div>{new Date(p.updatedAt).toLocaleString()} · {(p.size / 1024).toFixed(0)} KB{p.id === current ? ' · open now' : ''}</div></div>
-                <button className="btn sm" disabled={p.id === current} onClick={async () => {
+                <button className="btn sm" disabled={p.id === current} data-tip={`Open ${p.name}`} data-tip-desc="Switch to this project. Your current project stays saved." onClick={async () => {
                   try { await switchToProject(p.id); close(); window.dispatchEvent(new Event('studio:fit')); } catch (e) { toast(`Could not open: ${(e as Error).message}`, 'error'); }
                 }}>Open</button>
-                <button className="icon-btn sm" aria-label={`Delete ${p.name}`} disabled={p.id === current} onClick={() => store.set({
-                  dialog: { kind: 'confirm', title: `Delete “${p.name}”?`, body: 'This removes the project from this browser. Downloaded .anims files are not affected. This cannot be undone.', confirmLabel: 'Delete', danger: true,
+                <button className="icon-btn sm" aria-label={`Delete ${p.name}`} data-tip-desc="Remove this project from this browser. You will be asked to confirm." disabled={p.id === current} onClick={() => store.set({
+                  dialog: { kind: 'confirm', title: `Delete “${p.name}”?`, body: 'This removes the project from this browser. Downloaded .anims files are not affected. This cannot be undone.', confirmLabel: 'Delete', confirmHelp: 'Permanently remove this project from this browser.', danger: true,
                     onConfirm: () => { void db.deleteProject(p.id).then(() => { toast('Project deleted'); store.set({ dialog: { kind: 'projects' } }); }); } },
                 })}><Icon name="trash" size={16} /></button>
               </div>
@@ -112,7 +112,7 @@ function ProjectsDialog() {
           </div>
         )}
       </div>
-      <div className="dialog-foot"><button className="btn" onClick={() => commands['file.new'].run()}>New project</button><button className="btn" onClick={() => { close(); commands['file.open'].run(); }}>Open file…</button></div>
+      <div className="dialog-foot"><button className="btn" data-tip-desc={commands['file.new'].help} onClick={() => commands['file.new'].run()}>New project</button><button className="btn" data-tip-desc={commands['file.open'].help} onClick={() => { close(); commands['file.open'].run(); }}>Open file…</button></div>
     </div>
   );
 }
@@ -122,7 +122,7 @@ function ShortcutsDialog() {
   const toolsSection = { title: 'Tools & colors', items: Object.values(commands).filter((c) => (c.id.startsWith('tool.') || c.id.startsWith('color.') || c.id.startsWith('brush.')) && c.keys) };
   return (
     <div className="dialog wide" role="dialog" aria-modal="true" aria-labelledby="kbd-title">
-      <div className="dialog-head"><h2 id="kbd-title">Keyboard shortcuts</h2><button className="icon-btn sm" aria-label="Close" onClick={close}><Icon name="close" size={16} /></button></div>
+      <div className="dialog-head"><h2 id="kbd-title">Keyboard shortcuts</h2><button className="icon-btn sm" aria-label="Close" data-tip-desc="Close the shortcut list." onClick={close}><Icon name="close" size={16} /></button></div>
       <div className="dialog-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
         {[toolsSection, ...sections].filter((s) => s.items.length).map((s) => (
           <div key={s.title}>
@@ -146,7 +146,7 @@ function ShortcutsDialog() {
 function AboutDialog() {
   return (
     <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="about-title">
-      <div className="dialog-head"><h2 id="about-title">2D Animation Studio {__APP_VERSION__}</h2><button className="icon-btn sm" aria-label="Close" onClick={close}><Icon name="close" size={16} /></button></div>
+      <div className="dialog-head"><h2 id="about-title">2D Animation Studio {__APP_VERSION__}</h2><button className="icon-btn sm" aria-label="Close" data-tip-desc="Close this window." onClick={close}><Icon name="close" size={16} /></button></div>
       <div className="dialog-body">
         <p className="hint" style={{ margin: 0 }}>Offline-capable vector drawing and animation in the browser. Projects autosave locally; exports render from project data.</p>
         <div className="notice"><div><strong>Known limits in this version</strong><ul>
@@ -188,7 +188,7 @@ export function Toasts() {
         <div key={t.id} className="toast" data-kind={t.kind}>
           <Icon name={t.kind === 'error' || t.kind === 'warning' ? 'warning' : t.kind === 'success' ? 'check' : 'info'} size={16} />
           <span>{t.text}</span>
-          <button className="icon-btn sm" aria-label="Dismiss notification" onClick={() => dismissToast(t.id)}><Icon name="close" size={14} /></button>
+          <button className="icon-btn sm" aria-label="Dismiss notification" data-tip-desc="Hide this message." onClick={() => dismissToast(t.id)}><Icon name="close" size={14} /></button>
         </div>
       ))}
     </div>

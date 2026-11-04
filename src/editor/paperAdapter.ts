@@ -58,3 +58,37 @@ export function paperDistance(o: SceneObject, lp: Vec): number {
   const near = path.curves.length ? path.getNearestPoint(pt) : path.firstSegment.point;
   return near ? near.getDistance(pt) : Infinity;
 }
+
+/** Fits smooth Bézier segments through a polyline (Paper's `simplify`). Tolerance is in local units. */
+export function fitCurve(points: Vec[], tolerance = 2.5): Segment[] {
+  if (points.length < 2) return points.map((p) => ({ p, hi: [0, 0], ho: [0, 0] }));
+  const p = scope();
+  const path = new p.Path({ segments: points.map((q) => new p.Point(q)), insert: false });
+  path.simplify(tolerance);
+  return path.segments.map((s) => ({ p: [s.point.x, s.point.y], hi: [s.handleIn.x, s.handleIn.y], ho: [s.handleOut.x, s.handleOut.y] }));
+}
+
+/** Evenly spaced points along a path: `count` points from start to end (or around a closed path). */
+export function samplePath(segments: Segment[], closed: boolean, count: number): Vec[] {
+  const path = segmentsToPaper(segments, closed);
+  const L = path.length;
+  const out: Vec[] = [];
+  for (let k = 0; k < count; k++) {
+    const pt = path.getPointAt(count > 1 ? (L * k) / (count - 1) : 0) ?? path.firstSegment.point;
+    out.push([pt.x, pt.y]);
+  }
+  return out;
+}
+
+export function pathLength(segments: Segment[], closed: boolean): number {
+  return segments.length < 2 ? 0 : segmentsToPaper(segments, closed).length;
+}
+
+/** Closest point on the path: curve index (from anchor `index` to the next), curve parameter `t`, distance. */
+export function nearestOnPath(segments: Segment[], closed: boolean, lp: Vec): { index: number; t: number; dist: number } | null {
+  if (segments.length < 2) return null;
+  const pt = new paper.Point(lp[0], lp[1]);
+  const loc = segmentsToPaper(segments, closed).getNearestLocation(pt);
+  if (!loc) return null;
+  return { index: loc.curve.index, t: loc.time, dist: loc.point.getDistance(pt) };
+}

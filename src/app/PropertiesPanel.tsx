@@ -8,8 +8,11 @@ import type { BlendMode, Ease, Paint, SceneObject, Style, TextData } from '../do
 import { cmdAddKeyframe, cmdCreateTween, cmdRemoveKeyframe, arrange, flipSelection, goToFrame } from '../editor/actions';
 import { cachedLocalBounds, clearMeasureCache } from '../editor/renderer';
 import { commit, commitMerge, getState, setToolOptions, store, useApp, activeTool } from '../editor/state';
+import { editablePath } from '../editor/pathEdit';
+import { enterPathEdit, exitPathEdit } from '../editor/pathEditTool';
 import { fitToStage, setZoom } from '../editor/Stage';
-import { formatKeys, setPref } from './commands';
+import { setTool } from '../editor/tools';
+import { commands, formatKeys, FPS_HELP, setPref } from './commands';
 import { Check, Field, NumberField, PaintField, Seg } from './controls';
 import { Icon } from './icons';
 import { DocSizePopover } from './StageHeader';
@@ -63,14 +66,14 @@ function StyleEditor({ style, onChange, closed, showFill = true, title = 'Appear
           onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }} />
       </div>
       <Field label="Cap">
-        <Seg label="Line cap" value={style.cap} onChange={(cap) => onChange({ cap })} options={[{ value: 'butt', label: 'Butt' }, { value: 'round', label: 'Round' }, { value: 'square', label: 'Square' }]} />
+        <Seg label="Line cap" value={style.cap} onChange={(cap) => onChange({ cap })} options={[{ value: 'butt', label: 'Butt', title: 'Butt cap', tip: 'Line ends stop flat, exactly at the end point.' }, { value: 'round', label: 'Round', title: 'Round cap', tip: 'Line ends are rounded.' }, { value: 'square', label: 'Square', title: 'Square cap', tip: 'Line ends are squared off and extend past the end point by half the line width.' }]} />
       </Field>
       <Field label="Join">
-        <Seg label="Line join" value={style.join} onChange={(join) => onChange({ join })} options={[{ value: 'miter', label: 'Miter' }, { value: 'round', label: 'Round' }, { value: 'bevel', label: 'Bevel' }]} />
+        <Seg label="Line join" value={style.join} onChange={(join) => onChange({ join })} options={[{ value: 'miter', label: 'Miter', title: 'Miter join', tip: 'Sharp, pointed corners.' }, { value: 'round', label: 'Round', title: 'Round join', tip: 'Rounded corners.' }, { value: 'bevel', label: 'Bevel', title: 'Bevel join', tip: 'Corners are cut off flat.' }]} />
       </Field>
       {style.fillRule && closed && (
         <Field label="Fill rule">
-          <Seg label="Fill rule" value={style.fillRule} onChange={(fillRule) => onChange({ fillRule })} options={[{ value: 'nonzero', label: 'Non-zero' }, { value: 'evenodd', label: 'Even-odd' }]} />
+          <Seg label="Fill rule" value={style.fillRule} onChange={(fillRule) => onChange({ fillRule })} options={[{ value: 'nonzero', label: 'Non-zero', title: 'Non-zero fill', tip: 'Fills every enclosed area, including where the path crosses itself.' }, { value: 'evenodd', label: 'Even-odd', title: 'Even-odd fill', tip: 'Overlapping loops alternate between filled and empty, making holes.' }]} />
         </Field>
       )}
     </Section>
@@ -95,8 +98,8 @@ function TextEditorFields({ t, onChange }: { t: TextData; onChange: (patch: Part
         </select>
       </div>
       <div className="grid2">
-        <Seg label="Font style" value={t.fontStyle} onChange={(fontStyle) => onChange({ fontStyle })} options={[{ value: 'normal', label: 'Normal' }, { value: 'italic', label: <em>Italic</em>, title: 'Italic' }]} />
-        <Seg label="Alignment" value={t.align} onChange={(align) => onChange({ align })} options={[{ value: 'left', label: 'L', title: 'Align left' }, { value: 'center', label: 'C', title: 'Align center' }, { value: 'right', label: 'R', title: 'Align right' }]} />
+        <Seg label="Font style" value={t.fontStyle} onChange={(fontStyle) => onChange({ fontStyle })} options={[{ value: 'normal', label: 'Normal', title: 'Normal', tip: 'Upright text.' }, { value: 'italic', label: <em>Italic</em>, title: 'Italic', tip: 'Slanted text.' }]} />
+        <Seg label="Alignment" value={t.align} onChange={(align) => onChange({ align })} options={[{ value: 'left', label: 'L', title: 'Align left', tip: 'Line up each line of text on the left edge.' }, { value: 'center', label: 'C', title: 'Align center', tip: 'Center each line of text.' }, { value: 'right', label: 'R', title: 'Align right', tip: 'Line up each line of text on the right edge.' }]} />
       </div>
       <div className="grid3">
         <NumberField label="Line height" scrubLabel="LH" value={t.lineHeight} min={0.5} max={5} step={0.05} precision={2} onChange={(lineHeight) => onChange({ lineHeight })} />
@@ -131,7 +134,7 @@ function ToolSection() {
             <input type="range" min={0} max={100} value={b.smoothing} aria-label="Smoothing" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setToolOptions('brush', { smoothing: Number(e.target.value) })} />
           </Field>
           <Field label="Cap">
-            <Seg label="Brush cap" value={b.cap} onChange={(cap) => setToolOptions('brush', { cap })} options={[{ value: 'round', label: 'Round' }, { value: 'butt', label: 'Flat' }]} />
+            <Seg label="Brush cap" value={b.cap} onChange={(cap) => setToolOptions('brush', { cap })} options={[{ value: 'round', label: 'Round', title: 'Round ends', tip: 'Brush strokes start and end with a rounded tip.' }, { value: 'butt', label: 'Flat', title: 'Flat ends', tip: 'Brush strokes start and end square.' }]} />
           </Field>
           <Check label="Pressure sensitivity" checked={b.pressure.enabled} onChange={(enabled) => setToolOptions('brush', { pressure: { ...b.pressure, enabled } })} />
           {b.pressure.enabled && (
@@ -156,7 +159,7 @@ function ToolSection() {
         <Section title="Eraser" icon="eraser">
           <NumberField label="Size" scrubLabel="Size" value={e.size} min={1} max={500} precision={0} unit="px" onChange={(size) => setToolOptions('eraser', { size })} />
           <Field label="Behavior">
-            <Seg label="Eraser behavior" value={e.mode} onChange={(mode) => setToolOptions('eraser', { mode })} options={[{ value: 'split', label: 'Split strokes' }, { value: 'delete', label: 'Delete objects' }]} />
+            <Seg label="Eraser behavior" value={e.mode} onChange={(mode) => setToolOptions('eraser', { mode })} options={[{ value: 'split', label: 'Split strokes', title: 'Split strokes', tip: 'Cut brush strokes where the eraser passes, keeping the rest.' }, { value: 'delete', label: 'Delete objects', title: 'Delete objects', tip: 'Remove any object the eraser touches.' }]} />
           </Field>
           <Check label="Erase on all layers" checked={e.allLayers} onChange={(allLayers) => setToolOptions('eraser', { allLayers })} />
           <p className="hint">{e.mode === 'split' ? 'Cuts brush strokes where you sweep. Shapes, text and images are not affected — use Delete objects for those.' : 'Removes any object the eraser touches.'} Pixel erasing of imported images isn’t available in this version.</p>
@@ -169,8 +172,8 @@ function ToolSection() {
         <>
           <Section title="Shape" icon="shape">
             <Seg label="Shape type" value={o.type} onChange={(type) => setToolOptions('shape', { type })} options={[
-              { value: 'rect', label: <Icon name="rect" size={16} />, title: 'Rectangle' }, { value: 'ellipse', label: <Icon name="ellipse" size={16} />, title: 'Ellipse' },
-              { value: 'triangle', label: <Icon name="triangle" size={16} />, title: 'Triangle' }, { value: 'polygon', label: <Icon name="polygon" size={16} />, title: 'Polygon' },
+              { value: 'rect', label: <Icon name="rect" size={16} />, title: 'Rectangle', tip: 'Draw rectangles, with optional rounded corners.' }, { value: 'ellipse', label: <Icon name="ellipse" size={16} />, title: 'Ellipse', tip: 'Draw ovals and circles.' },
+              { value: 'triangle', label: <Icon name="triangle" size={16} />, title: 'Triangle', tip: 'Draw triangles.' }, { value: 'polygon', label: <Icon name="polygon" size={16} />, title: 'Polygon', tip: 'Draw shapes with any number of equal sides.' },
             ]} />
             <div className="grid2">
               {o.type === 'polygon' && <NumberField label="Sides" scrubLabel="Sides" value={o.sides} min={3} max={64} precision={0} onChange={(sides) => setToolOptions('shape', { sides })} />}
@@ -211,7 +214,7 @@ function ToolSection() {
       return (
         <Section title="Eyedropper" icon="eyedropper">
           <Field label="Sample into">
-            <Seg label="Sample target" value={s.o.eyedropper.target} onChange={(target) => setToolOptions('eyedropper', { target })} options={[{ value: 'fill', label: 'Fill' }, { value: 'stroke', label: 'Stroke' }]} />
+            <Seg label="Sample target" value={s.o.eyedropper.target} onChange={(target) => setToolOptions('eyedropper', { target })} options={[{ value: 'fill', label: 'Fill', title: 'Sample to fill', tip: 'Picked colors go into the fill swatch.' }, { value: 'stroke', label: 'Stroke', title: 'Sample to stroke', tip: 'Picked colors go into the stroke swatch.' }]} />
           </Field>
           <Check label="Sample all layers" checked={s.o.eyedropper.allLayers} onChange={(allLayers) => setToolOptions('eyedropper', { allLayers })} />
           <p className="hint">Off: samples only the active layer. Hold Alt to sample into the other swatch.</p>
@@ -222,9 +225,9 @@ function ToolSection() {
       return (
         <Section title={s.tool === 'zoom' ? 'Zoom' : 'Hand'} icon={s.tool}>
           <div className="grid3">
-            {[0.25, 0.5, 1, 2, 4, 8].map((z) => <button key={z} className="btn sm" aria-pressed={Math.abs(s.zoom - z) < 1e-3} onClick={() => setZoom(z)}>{z * 100}%</button>)}
+            {[0.25, 0.5, 1, 2, 4, 8].map((z) => <button key={z} className="btn sm" aria-pressed={Math.abs(s.zoom - z) < 1e-3} data-tip={`Zoom to ${z * 100}%`} data-tip-desc="Set the stage zoom to this level." onClick={() => setZoom(z)}>{z * 100}%</button>)}
           </div>
-          <button className="btn" onClick={fitToStage}><Icon name="fit" size={16} /> Fit to stage</button>
+          <button className="btn" data-tip="Fit to stage" data-tip-desc={commands['view.fit'].help} onClick={fitToStage}><Icon name="fit" size={16} /> Fit to stage</button>
         </Section>
       );
     default:
@@ -278,6 +281,7 @@ function SingleObject({ o, frame, layerId }: { o: SceneObject; frame: number; la
           <Check label="Visible" checked={o.visible} onChange={(v) => upd('Toggle visibility', (x) => ({ ...x, visible: v }))} />
           <Check label="Locked" checked={o.locked} onChange={(v) => { upd('Toggle lock', (x) => ({ ...x, locked: v })); if (v) store.set({ selection: [] }); }} />
         </div>
+        {editablePath(o) && <EditPointsButton id={id} brush={o.kind === 'path' && !!o.brush} shape={o.kind === 'shape'} />}
       </Section>
       <Section title="Transform">
         <div className="grid2">
@@ -294,21 +298,22 @@ function SingleObject({ o, frame, layerId }: { o: SceneObject; frame: number; la
             <div className="pivot-grid" role="group" aria-label="Pivot point">
               {PIVOTS.map((u, i) => (
                 <button key={i} aria-label={`Pivot ${['top left', 'top', 'top right', 'left', 'center', 'right', 'bottom left', 'bottom', 'bottom right'][i]}`}
-                  aria-pressed={Math.abs(pivotUnit[0] - u[0]) < 0.01 && Math.abs(pivotUnit[1] - u[1]) < 0.01} onClick={() => setPivot(u)} />
+                  aria-pressed={Math.abs(pivotUnit[0] - u[0]) < 0.01 && Math.abs(pivotUnit[1] - u[1]) < 0.01}
+                  data-tip-desc="Rotate and scale around this point of the object." onClick={() => setPivot(u)} />
               ))}
             </div>
           </div>
           <div className="row">
-            <button className="icon-btn sm" aria-label="Flip horizontal" data-tip="Flip horizontal" data-tip-pos="bottom" onClick={() => flipSelection('h')}><Icon name="flipH" size={16} /></button>
-            <button className="icon-btn sm" aria-label="Flip vertical" data-tip="Flip vertical" data-tip-pos="bottom" onClick={() => flipSelection('v')}><Icon name="flipV" size={16} /></button>
-            <button className="btn sm" onClick={() => setT('Reset transform', { rotation: 0, scaleX: 1, scaleY: 1 }, 1)}>Reset</button>
+            <button className="icon-btn sm" aria-label="Flip horizontal" data-tip="Flip horizontal" data-tip-desc={commands['edit.flipH'].help} onClick={() => flipSelection('h')}><Icon name="flipH" size={16} /></button>
+            <button className="icon-btn sm" aria-label="Flip vertical" data-tip="Flip vertical" data-tip-desc={commands['edit.flipV'].help} onClick={() => flipSelection('v')}><Icon name="flipV" size={16} /></button>
+            <button className="btn sm" data-tip="Reset transform" data-tip-desc="Remove rotation and scaling. The object keeps its position." onClick={() => setT('Reset transform', { rotation: 0, scaleX: 1, scaleY: 1 }, 1)}>Reset</button>
           </div>
         </div>
         <div className="row">
-          <button className="btn sm" onClick={() => arrange('front')} aria-label="Bring to front">Front</button>
-          <button className="btn sm" onClick={() => arrange('forward')} aria-label="Bring forward">Forward</button>
-          <button className="btn sm" onClick={() => arrange('backward')} aria-label="Send backward">Backward</button>
-          <button className="btn sm" onClick={() => arrange('back')} aria-label="Send to back">Back</button>
+          <button className="btn sm" onClick={() => arrange('front')} aria-label="Bring to front" data-tip-keys={formatKeys(['Mod+Shift+]'])} data-tip-desc={commands['edit.front'].help}>Front</button>
+          <button className="btn sm" onClick={() => arrange('forward')} aria-label="Bring forward" data-tip-keys={formatKeys(['Mod+]'])} data-tip-desc={commands['edit.forward'].help}>Forward</button>
+          <button className="btn sm" onClick={() => arrange('backward')} aria-label="Send backward" data-tip-keys={formatKeys(['Mod+['])} data-tip-desc={commands['edit.backward'].help}>Backward</button>
+          <button className="btn sm" onClick={() => arrange('back')} aria-label="Send to back" data-tip-keys={formatKeys(['Mod+Shift+['])} data-tip-desc={commands['edit.back'].help}>Back</button>
         </div>
       </Section>
       <Section title="Animation" icon="keyframe">
@@ -317,9 +322,9 @@ function SingleObject({ o, frame, layerId }: { o: SceneObject; frame: number; la
             : keyHere ? `Keyframe at frame ${frame + 1}. Edits update this key.` : `Interpolated at frame ${frame + 1}. Editing here adds a keyframe.`}
         </p>
         <div className="row" style={{ flexWrap: 'wrap' }}>
-          <button className="btn sm" onClick={cmdCreateTween}><Icon name="tween" size={14} /> Create tween</button>
-          {keyHere ? <button className="btn sm" onClick={cmdRemoveKeyframe}>Remove key <kbd>{formatKeys(['Shift+F9'])}</kbd></button>
-            : <button className="btn sm" onClick={cmdAddKeyframe}>Add key <kbd>{formatKeys(['F9'])}</kbd></button>}
+          <button className="btn sm" data-tip="Create motion tween" data-tip-keys={formatKeys(['Shift+T'])} data-tip-desc={commands['tl.tween'].help} onClick={cmdCreateTween}><Icon name="tween" size={14} /> Create tween</button>
+          {keyHere ? <button className="btn sm" data-tip="Remove keyframe" data-tip-keys={formatKeys(['Shift+F9'])} data-tip-desc={commands['tl.removeKey'].help} onClick={cmdRemoveKeyframe}>Remove key <kbd>{formatKeys(['Shift+F9'])}</kbd></button>
+            : <button className="btn sm" data-tip="Add keyframe" data-tip-keys="F9" data-tip-desc={commands['tl.addKey'].help} onClick={cmdAddKeyframe}>Add key <kbd>{formatKeys(['F9'])}</kbd></button>}
         </div>
         {keyHere && (
           <Field label="Ease to next key">
@@ -330,15 +335,15 @@ function SingleObject({ o, frame, layerId }: { o: SceneObject; frame: number; la
         )}
         {o.keyframes.length > 0 && (
           <div className="key-chips" aria-label="Keyframes">
-            {o.keyframes.map((k) => <button key={k.frame} aria-current={k.frame === frame} aria-label={`Go to keyframe at frame ${k.frame + 1}`} onClick={() => goToFrame(k.frame)}>◆ {k.frame + 1}</button>)}
+            {o.keyframes.map((k) => <button key={k.frame} aria-current={k.frame === frame} aria-label={`Go to keyframe at frame ${k.frame + 1}`} data-tip={`Keyframe at frame ${k.frame + 1}`} data-tip-desc="Jump the playhead to this keyframe." onClick={() => goToFrame(k.frame)}>◆ {k.frame + 1}</button>)}
           </div>
         )}
       </Section>
       {o.kind === 'shape' && (
         <Section title="Shape">
           <Seg label="Shape type" value={o.geometry.shape} onChange={(shape) => upd('Change shape', (x) => (x.kind === 'shape' ? { ...x, geometry: { ...x.geometry, shape } } : x))} options={[
-            { value: 'rect', label: <Icon name="rect" size={16} />, title: 'Rectangle' }, { value: 'ellipse', label: <Icon name="ellipse" size={16} />, title: 'Ellipse' },
-            { value: 'triangle', label: <Icon name="triangle" size={16} />, title: 'Triangle' }, { value: 'polygon', label: <Icon name="polygon" size={16} />, title: 'Polygon' },
+            { value: 'rect', label: <Icon name="rect" size={16} />, title: 'Rectangle', tip: 'Draw rectangles, with optional rounded corners.' }, { value: 'ellipse', label: <Icon name="ellipse" size={16} />, title: 'Ellipse', tip: 'Draw ovals and circles.' },
+            { value: 'triangle', label: <Icon name="triangle" size={16} />, title: 'Triangle', tip: 'Draw triangles.' }, { value: 'polygon', label: <Icon name="polygon" size={16} />, title: 'Polygon', tip: 'Draw shapes with any number of equal sides.' },
           ]} />
           <div className="grid2">
             {o.geometry.shape === 'polygon' && <NumberField label="Sides" scrubLabel="Sides" value={o.geometry.sides} min={3} max={64} precision={0} onChange={(sides) => upd('Polygon sides', (x) => (x.kind === 'shape' ? { ...x, geometry: { ...x.geometry, sides } } : x))} />}
@@ -349,7 +354,7 @@ function SingleObject({ o, frame, layerId }: { o: SceneObject; frame: number; la
       {o.kind === 'text' && (
         <Section title="Typography">
           <TextEditorFields t={o.text} onChange={(patch) => upd('Edit typography', (x) => (x.kind === 'text' ? { ...x, text: { ...x.text, ...patch } } : x))} />
-          <button className="btn sm" onClick={() => store.set({ editingTextId: id })}>Edit text…</button>
+          <button className="btn sm" data-tip-desc="Edit this text directly on the stage." onClick={() => store.set({ editingTextId: id })}>Edit text…</button>
         </Section>
       )}
       {(o.kind === 'path' || o.kind === 'shape') && (
@@ -367,7 +372,7 @@ function SingleObject({ o, frame, layerId }: { o: SceneObject; frame: number; la
       {o.kind === 'bitmap' && asset && (
         <Section title="Bitmap asset" icon="image">
           <p className="hint">{asset.name}<br />{asset.width} × {asset.height}px · {asset.mime.replace('image/', '').toUpperCase()} · {(asset.byteLength / 1024).toFixed(0)} KB<br />Stored offline in this browser; the original bytes are kept unchanged.</p>
-          <button className="btn sm" onClick={() => setT('Reset to original size', { scaleX: 1, scaleY: 1, rotation: 0 })}>Original size (100%)</button>
+          <button className="btn sm" data-tip-desc="Show the image at its original pixel size with no rotation." onClick={() => setT('Reset to original size', { scaleX: 1, scaleY: 1, rotation: 0 })}>Original size (100%)</button>
         </Section>
       )}
       <LayerInfo layerId={layerId} />
@@ -402,12 +407,12 @@ function MultiObject({ objs, frame }: { objs: { o: SceneObject }[]; frame: numbe
         <NumberField label="Opacity (all)" scrubLabel="Op" value={same ? Math.round(opac[0] * 100) : null} min={0} max={100} precision={0} unit="%"
           onChange={(v) => commitMerge('Opacity', (p) => mapObjects(p, ids, (x) => setObjectTransform(x, frame, {}, v / 100)), ids)} />
         <div className="row">
-          <button className="btn sm" onClick={() => arrange('front')}>Front</button>
-          <button className="btn sm" onClick={() => arrange('back')}>Back</button>
-          <button className="btn sm" onClick={() => flipSelection('h')}>Flip H</button>
-          <button className="btn sm" onClick={() => flipSelection('v')}>Flip V</button>
+          <button className="btn sm" data-tip="Bring to front" data-tip-desc={commands['edit.front'].help} onClick={() => arrange('front')}>Front</button>
+          <button className="btn sm" data-tip="Send to back" data-tip-desc={commands['edit.back'].help} onClick={() => arrange('back')}>Back</button>
+          <button className="btn sm" data-tip="Flip horizontal" data-tip-desc={commands['edit.flipH'].help} onClick={() => flipSelection('h')}>Flip H</button>
+          <button className="btn sm" data-tip="Flip vertical" data-tip-desc={commands['edit.flipV'].help} onClick={() => flipSelection('v')}>Flip V</button>
         </div>
-        <button className="btn sm" onClick={cmdAddKeyframe}><Icon name="keyframe" size={14} /> Add keyframe to all</button>
+        <button className="btn sm" data-tip="Add keyframe to all" data-tip-keys="F9" data-tip-desc="Record a keyframe at the playhead for every selected object." onClick={cmdAddKeyframe}><Icon name="keyframe" size={14} /> Add keyframe to all</button>
       </Section>
       {first && (
         <StyleEditor title={`Appearance (${vector.length} vector)`} style={first.style} closed onChange={(patch) => commitMerge('Edit style', (p) => mapObjects(p, vector.map((x) => x.o.id), (x) => ({ ...x, style: { ...x.style, ...patch } })), ids)} />
@@ -439,7 +444,8 @@ function FpsPicker() {
   const fps = useApp((s) => s.project.fps);
   return (
     <div className="row" style={{ flexWrap: 'wrap', gap: 4 }}>
-      {FPS_PRESETS.map((f) => <button key={f} className="btn sm" aria-pressed={f === fps} style={f === fps ? { borderColor: 'var(--accent)', color: 'var(--accent-strong)' } : undefined} onClick={() => commit('Frame rate', (p) => (p.fps === f ? p : { ...p, fps: f }))}>{f}</button>)}
+      {FPS_PRESETS.map((f) => <button key={f} className="btn sm" aria-pressed={f === fps} style={f === fps ? { borderColor: 'var(--accent)', color: 'var(--accent-strong)' } : undefined}
+        data-tip={`${f} fps`} data-tip-desc={FPS_HELP[f] ?? `Play ${f} frames per second.`} onClick={() => commit('Frame rate', (p) => (p.fps === f ? p : { ...p, fps: f }))}>{f}</button>)}
     </div>
   );
 }
@@ -453,7 +459,7 @@ function DocumentSection() {
     <>
       <Section title="Document">
         <div className="row">
-          <button ref={sizeBtn} className="btn" style={{ flex: 1 }} aria-haspopup="dialog" onClick={() => setSizeOpen(!sizeOpen)}>{p.w} × {p.h} px</button>
+          <button ref={sizeBtn} className="btn" style={{ flex: 1 }} aria-haspopup="dialog" data-tip="Document size" data-tip-desc="The artboard size in pixels. Click to pick a preset or enter a custom size." onClick={() => setSizeOpen(!sizeOpen)}>{p.w} × {p.h} px</button>
           {sizeOpen && <DocSizePopover anchor={sizeBtn.current} onClose={() => setSizeOpen(false)} />}
         </div>
         <Field label="Frame rate (fps)">
@@ -499,5 +505,22 @@ export function PropertiesPanel() {
       {objs.length === 0 && !toolHasOptions && <DocumentSection />}
       {objs.length === 0 && toolHasOptions && <LayerInfo layerId={getState().activeLayerId} />}
     </aside>
+  );
+}
+
+function EditPointsButton({ id, brush, shape }: { id: string; brush: boolean; shape: boolean }) {
+  const editing = useApp((s) => s.pathEdit?.id === id);
+  const desc = editing ? 'Stop editing points (Esc or Enter does the same).'
+    : `Show this ${brush ? 'brush stroke\u2019s centerline' : shape ? 'shape\u2019s outline' : 'path'} as anchor points you can drag, bend, add, delete and convert. Same as double-clicking it with the Select tool.${shape ? ' The shape becomes a path on the first edit.' : ''}`;
+  return (
+    <button className={`btn sm${editing ? ' primary' : ''}`} aria-pressed={editing} data-tip={editing ? 'Done editing points' : 'Edit points'} data-tip-desc={desc}
+      onClick={() => {
+        if (editing) { exitPathEdit(); return; }
+        const t = activeTool();
+        if (t !== 'select' && t !== 'transform') setTool('select');
+        enterPathEdit(id);
+      }}>
+      <Icon name="pen" size={14} /> {editing ? 'Done editing points' : 'Edit points'}
+    </button>
   );
 }

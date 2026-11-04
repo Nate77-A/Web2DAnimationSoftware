@@ -36,6 +36,8 @@ function MenuBar() {
             role="menuitem"
             aria-haspopup="menu"
             aria-expanded={open === m.id}
+            data-tip={`${m.label} menu`}
+            data-tip-desc={m.help}
             onClick={() => setOpen(open === m.id ? null : m.id)}
             onPointerEnter={() => { if (open && open !== m.id) setOpen(m.id); }}
             onKeyDown={(e: React.KeyboardEvent) => {
@@ -71,6 +73,9 @@ function MenuBar() {
                     aria-checked={checked}
                     disabled={!enabled}
                     tabIndex={-1}
+                    data-tip={c.label}
+                    data-tip-desc={c.help}
+                    data-tip-pos="right"
                     onClick={() => { setOpen(null); c.run(); }}
                   >
                     <span className="check">{checked ? <Icon name="check" size={16} /> : null}</span>
@@ -95,6 +100,8 @@ function ProjectName() {
     <input
       className="project-name"
       aria-label="Project name"
+      data-tip="Project name"
+      data-tip-desc="Click to rename the project. The name is used for saved and exported files."
       value={v}
       size={Math.max(8, Math.min(32, v.length + 1))}
       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setV(e.target.value)}
@@ -111,7 +118,8 @@ function SaveStatus() {
   const s = useApp((st) => ({ status: st.saveStatus, error: st.saveError, dirty: st.fileDirty }));
   const text = s.status === 'error' ? 'Autosave failed' : s.status === 'saved' ? 'Saved locally' : 'Saving…';
   return (
-    <span className="status-chip" data-status={s.status} role="status" aria-live="polite" title={s.error ?? (s.dirty ? 'Autosaved in this browser. Use File › Save to download a project file.' : 'Autosaved in this browser')}>
+    <span className="status-chip" data-status={s.status} role="status" aria-live="polite"
+      data-tip={text} data-tip-desc={s.error ?? (s.dirty ? 'Autosaved in this browser. Use File › Save to download a project file.' : 'Your work is autosaved in this browser.')}>
       <span className="status-dot" aria-hidden="true" />
       <span className="status-text">{text}</span>
     </span>
@@ -129,9 +137,10 @@ export function TopBar() {
         <SaveStatus />
       </div>
       <div className="topbar-right">
-        <button className="icon-btn" aria-label={`Undo${h.undoLabel ? ` ${h.undoLabel}` : ''} (${formatKeys(['Mod+Z'])})`} data-tip={`Undo${h.undoLabel ? `: ${h.undoLabel}` : ''}  ${formatKeys(['Mod+Z'])}`} data-tip-pos="bottom" disabled={!h.canUndo} onClick={undo}><Icon name="undo" /></button>
-        <button className="icon-btn" aria-label={`Redo${h.redoLabel ? ` ${h.redoLabel}` : ''} (${formatKeys(['Mod+Shift+Z'])})`} data-tip={`Redo${h.redoLabel ? `: ${h.redoLabel}` : ''}  ${formatKeys(['Mod+Shift+Z'])}`} data-tip-pos="bottom" disabled={!h.canRedo} onClick={redo}><Icon name="redo" /></button>
-        <button className="btn primary" style={{ marginLeft: 6 }} onClick={() => commands['file.export'].run()} aria-label={`Export (${formatKeys(['Mod+Shift+E'])})`}>
+        <button className="icon-btn" aria-label={`Undo${h.undoLabel ? ` ${h.undoLabel}` : ''} (${formatKeys(['Mod+Z'])})`} data-tip={`Undo${h.undoLabel ? `: ${h.undoLabel}` : ''}`} data-tip-keys={formatKeys(['Mod+Z'])} data-tip-desc={commands['edit.undo'].help} disabled={!h.canUndo} onClick={undo}><Icon name="undo" /></button>
+        <button className="icon-btn" aria-label={`Redo${h.redoLabel ? ` ${h.redoLabel}` : ''} (${formatKeys(['Mod+Shift+Z'])})`} data-tip={`Redo${h.redoLabel ? `: ${h.redoLabel}` : ''}`} data-tip-keys={formatKeys(['Mod+Shift+Z'])} data-tip-desc={commands['edit.redo'].help} disabled={!h.canRedo} onClick={redo}><Icon name="redo" /></button>
+        <button className="btn primary" style={{ marginLeft: 6 }} onClick={() => commands['file.export'].run()} aria-label={`Export (${formatKeys(['Mod+Shift+E'])})`}
+          data-tip="Export" data-tip-keys={formatKeys(['Mod+Shift+E'])} data-tip-desc={commands['file.export'].help}>
           <Icon name="export" size={16} /><span>Export</span>
         </button>
       </div>

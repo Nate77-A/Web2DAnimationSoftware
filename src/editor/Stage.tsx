@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'react';
 import { evaluateFrame } from '../domain/evaluator';
 import { layoutText, fontString, segmentsToPathData } from '../domain/geometry';
-import { multiply, rectCorners } from '../domain/math';
+import { apply, multiply, rectCorners } from '../domain/math';
 import { locateObject, mapObjects, removeObjects } from '../domain/ops';
 import { cssColor } from '../domain/color';
 import type { Vec } from '../domain/schema';
@@ -12,6 +12,8 @@ import { docToScreen, fitViewport, screenToDoc, selectionInfo, viewMatrix, world
 import {
   activeTool, beginGesture, cancelGesture, commit, endGesture, getState, store, updateGesture, useApp,
 } from './state';
+import { Icon } from '../app/icons';
+import { closeDeletePrompt, deletePathAnchors, pathEditTarget, visibleHandles } from './pathEditTool';
 import { HANDLE_IDS, handleGeometry, isDrawingTool, tools, type PointerInfo } from './tools';
 
 const PASTEBOARD = '#2A3038';
@@ -108,6 +110,7 @@ export function Stage() {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tool = useApp((s) => activeTool(s));
+  const peHover = useApp((s) => (s.pathEdit ? s.pathEdit.hover ?? 'idle' : null));
   const panning = useRef(false);
 
   // size + initial fit
@@ -174,7 +177,7 @@ export function Stage() {
     const down = (e: PointerEvent) => {
       if (e.button === 2) return;
       const target = e.target as Element;
-      if (target.closest('.text-editor')) return;
+      if (target.closest('.text-editor, .pe-delete-pop')) return;
       wrap.focus({ preventScroll: true });
       const s = getState();
       const t = activeTool(s);
@@ -297,7 +300,7 @@ export function Stage() {
   return (
     <div
       ref={wrapRef}
-      className={`stage tool-${tool}`}
+      className={`stage tool-${tool}${peHover ? ` path-editing pe-over-${peHover}` : ''}`}
       tabIndex={0}
       role="application"
       aria-label="Drawing stage. Use the active tool to draw; Space or two fingers to pan; Ctrl or Command plus wheel to zoom."
@@ -306,6 +309,7 @@ export function Stage() {
     >
       <canvas ref={canvasRef} className="stage-canvas" />
       <Overlay />
+      <AnchorDeletePrompt />
       <TextEditor />
     </div>
   );
@@ -317,17 +321,19 @@ function Overlay() {
   const s = useApp((st) => ({
     selection: st.selection, project: st.project, viewport: st.viewport, frame: st.currentFrame, overlay: st.overlay,
     tool: activeTool(st), editing: st.editingTextId, penHandles: st.toolOptions.pen.showHandles, size: st.stageSize, playing: st.playing,
+    pathEdit: st.pathEdit,
   }));
   const v = s.viewport;
   const toS = (p: Vec) => docToScreen(v, p);
   const pts = (arr: Vec[]) => arr.map((p) => toS(p).map((n) => n.toFixed(1)).join(',')).join(' ');
   const info = s.playing ? null : selectionInfo(getState());
-  const showHandles = s.tool === 'transform' && info && !s.editing;
+  const pe = s.playing ? null : s.pathEdit;
+  const showHandles = s.tool === 'transform' && info && !s.editing && !pe;
   const o = s.overlay;
 
   return (
     <svg className="overlay" width={s.size.width} height={s.size.height} aria-hidden="true">
-      {info && info.objects.map((eo) => (
+      {info && info.objects.filter((eo) => eo.source.id !== pe?.id).map((eo) => (
         <polygon key={eo.source.id} points={pts(worldCorners(eo))} className="sel-object" />
       ))}
       {info && !info.single && (
@@ -353,6 +359,7 @@ function Overlay() {
       {o.marquee && (() => { const a = toS([o.marquee.x, o.marquee.y]); return <rect x={a[0]} y={a[1]} width={o.marquee.width * v.zoom} height={o.marquee.height * v.zoom} className="marquee" />; })()}
       {o.zoomBox && (() => { const a = toS([o.zoomBox.x, o.zoomBox.y]); return <rect x={a[0]} y={a[1]} width={o.zoomBox.width * v.zoom} height={o.zoomBox.height * v.zoom} className="marquee" />; })()}
       {o.pen && <PenPreview pen={o.pen} toS={toS} showHandles={s.penHandles} />}
+      {pe && <PathEditOverlay pe={pe} toS={toS} />}
       {o.eraser && s.tool === 'eraser' && (() => { const c = toS(o.eraser.pos); return <circle cx={c[0]} cy={c[1]} r={o.eraser.r * v.zoom} className="tool-cursor" />; })()}
       {o.brushCursor && s.tool === 'brush' && (() => { const c = toS(o.brushCursor.pos); return <circle cx={c[0]} cy={c[1]} r={Math.max(1.5, o.brushCursor.r * v.zoom)} className="tool-cursor" />; })()}
     </svg>
@@ -386,6 +393,86 @@ function PenPreview({ pen, toS, showHandles }: { pen: NonNullable<ReturnType<typ
         </g>
       ))}
     </g>
+  );
+}
+
+function PathEditOverlay({ pe, toS }: { pe: NonNullable<ReturnType<typeof getState>['pathEdit']>; toS: (p: Vec) => Vec }) {
+  const t = pathEditTarget(getState());
+  if (!t) return null;
+  const segs = t.path.segments;
+  const screen = (p: Vec) => toS(apply(t.matrix, p));
+  const screenSegs = segs.map((sg) => {
+    const p = screen(sg.p);
+    const hi = screen([sg.p[0] + sg.hi[0], sg.p[1] + sg.hi[1]]), ho = screen([sg.p[0] + sg.ho[0], sg.p[1] + sg.ho[1]]);
+    return { p, hi: [hi[0] - p[0], hi[1] - p[1]] as Vec, ho: [ho[0] - p[0], ho[1] - p[1]] as Vec };
+  });
+  const handles = visibleHandles(t.path, pe);
+  const selected = new Set(pe.selected);
+  return (
+    <g>
+      <path d={segmentsToPathData(screenSegs, t.path.closed)} className="pe-path" />
+      {pe.curve !== null && pe.curve < segs.length && (() => {
+        const a = screenSegs[pe.curve], b = screenSegs[(pe.curve + 1) % segs.length];
+        return <path d={segmentsToPathData([{ ...a, hi: [0, 0] }, { ...b, ho: [0, 0] }], false)} className="pe-curve-active" />;
+      })()}
+      {handles.map(({ index, which }) => {
+        const sg = screenSegs[index];
+        const h: Vec = [sg.p[0] + sg[which][0], sg.p[1] + sg[which][1]];
+        return (
+          <g key={`${index}${which}`}>
+            <line x1={sg.p[0]} y1={sg.p[1]} x2={h[0]} y2={h[1]} className="pe-handle-line" />
+            <circle cx={h[0]} cy={h[1]} r={3} className="pe-handle" />
+          </g>
+        );
+      })}
+      {screenSegs.map((sg, i) => {
+        const smooth = Math.hypot(...segs[i].hi) > 1e-6 || Math.hypot(...segs[i].ho) > 1e-6;
+        const cls = `pe-anchor${selected.has(i) ? ' selected' : ''}`;
+        return smooth
+          ? <circle key={i} cx={sg.p[0]} cy={sg.p[1]} r={5} className={cls} />
+          : <rect key={i} x={sg.p[0] - 4.5} y={sg.p[1] - 4.5} width={9} height={9} className={cls} />;
+      })}
+      {pe.hold !== null && pe.hold < segs.length && (() => {
+        const c = screenSegs[pe.hold].p;
+        return <circle cx={c[0]} cy={c[1]} r={11} className="pe-hold" pathLength={100} />;
+      })()}
+    </g>
+  );
+}
+
+/** X button shown beside an anchor after double-clicking it in path edit mode. */
+function AnchorDeletePrompt() {
+  const s = useApp((st) => ({ pe: st.pathEdit, project: st.project, viewport: st.viewport, frame: st.currentFrame }));
+  const ref = useRef<HTMLDivElement | null>(null);
+  const index = s.pe?.deletePrompt ?? null;
+  useEffect(() => {
+    if (index === null) return;
+    ref.current?.querySelector('button')?.focus({ preventScroll: true });
+    // Presses on the stage are handled by edit mode (they only hide the button); elsewhere, hide it here.
+    const down = (e: PointerEvent) => {
+      const t = e.target as Element;
+      if (!ref.current?.contains(t) && !t.closest?.('.stage')) closeDeletePrompt();
+    };
+    window.addEventListener('pointerdown', down, true);
+    return () => window.removeEventListener('pointerdown', down, true);
+  }, [index]);
+  const t = index !== null ? pathEditTarget(getState()) : null;
+  if (index === null || !t || index >= t.path.segments.length) return null;
+  const [x, y] = docToScreen(s.viewport, apply(t.matrix, t.path.segments[index].p));
+  const canDelete = t.path.segments.length > 2;
+  return (
+    <div ref={ref} className="pe-delete-pop" style={{ left: x + 12, top: y - 34 }}>
+      <button
+        className="icon-btn sm danger"
+        aria-label="Delete anchor point"
+        data-tip="Delete anchor point"
+        data-tip-desc={canDelete ? 'Remove this point. Click anywhere else to keep it.' : 'A path needs at least two points, so this one cannot be removed.'}
+        disabled={!canDelete}
+        onClick={() => { deletePathAnchors([index]); document.querySelector<HTMLElement>('.stage')?.focus({ preventScroll: true }); }}
+      >
+        <Icon name="close" size={16} />
+      </button>
+    </div>
   );
 }
 
