@@ -4,6 +4,7 @@ import { fitToStage, Stage } from '../editor/Stage';
 import { store, useApp } from '../editor/state';
 import { Timeline } from '../timeline/Timeline';
 import { Dialogs, Toasts } from './Dialogs';
+import { LinkedObjectsPanel } from './LinkedObjectsPanel';
 import { PropertiesPanel } from './PropertiesPanel';
 import { StageHeader } from './StageHeader';
 import { ToolRail } from './ToolRail';
@@ -35,6 +36,7 @@ export function App() {
         {s.panels.properties && <PropertiesPanel />}
       </div>
       {s.panels.timeline ? <Timeline /> : <div />}
+      {s.panels.links && <LinkedObjectsPanel />}
       <Dialogs />
       <Toasts />
       <Tooltip />

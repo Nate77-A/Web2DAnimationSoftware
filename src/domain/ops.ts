@@ -38,8 +38,15 @@ export function cloneObject(o: SceneObject): SceneObject {
   return c;
 }
 
+/** Clones objects with new ids; parent links between objects in the batch point at the new copies. */
+export function cloneObjects(objs: SceneObject[]): SceneObject[] {
+  const copies = objs.map(cloneObject);
+  const ids = new Map(objs.map((o, i) => [o.id, copies[i].id]));
+  return copies.map((c) => (c.link && ids.has(c.link.parentId) ? { ...c, link: { ...c.link, parentId: ids.get(c.link.parentId)! } } : c));
+}
+
 export function cloneContent(c: Content | undefined): Content {
-  return { id: newId('content'), objects: c ? c.objects.map(cloneObject) : [] };
+  return { id: newId('content'), objects: c ? cloneObjects(c.objects) : [] };
 }
 
 function shiftKeyframes(c: Content, delta: number): Content {

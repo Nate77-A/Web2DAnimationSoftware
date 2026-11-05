@@ -9,7 +9,7 @@
 //          holds through its frames; a tween key is removed from every object keyed on that frame.
 import { newId } from './ids';
 import type { KeyRef } from './keyframes';
-import { cloneContent, cloneObject, growDuration, locateObject, removeFrames, removeKeyframe, setKeyframeEase, shiftSpans } from './ops';
+import { cloneContent, cloneObjects, growDuration, locateObject, removeFrames, removeKeyframe, setKeyframeEase, shiftSpans } from './ops';
 import type { Ease, Exposure, Keyframe, Layer, Project, SceneObject } from './schema';
 
 export interface ClipSpan { start: number; end: number; objects: SceneObject[] } // frames relative to the clip start
@@ -129,7 +129,7 @@ function insertSpans(layer: Layer, t: number, length: number, spans: ClipSpan[])
     };
   }
   l = shiftSpans(l, t, length);
-  const added = spans.map((s) => ({ id: newId('content'), objects: s.objects.map((o) => withKeysShifted(cloneObject(o), t)), s }));
+  const added = spans.map((s) => ({ id: newId('content'), objects: cloneObjects(s.objects).map((o) => withKeysShifted(o, t)), s }));
   return {
     ...l,
     exposureTrack: [...l.exposureTrack, ...added.map((a) => ({ startFrame: t + a.s.start, endFrame: t + a.s.end, contentId: a.id }))].sort(byStart),

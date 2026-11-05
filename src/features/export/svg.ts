@@ -2,6 +2,7 @@
 import { parseHex } from '../../domain/color';
 import { contentAt, isLayerEffectivelyVisible, sampleObject } from '../../domain/evaluator';
 import { layoutText, quoteFamily, objectSegments, objectSubpaths, subpathsToPathData } from '../../domain/geometry';
+import { worldMatrix } from '../../domain/links';
 import { transformMatrix, type Matrix } from '../../domain/math';
 import type { Asset, Content, Exposure, Layer, Paint, Project, SceneObject } from '../../domain/schema';
 import { cachedLocalBounds, linearGradientPoints, measureText } from '../../editor/renderer';
@@ -41,13 +42,12 @@ function spansInRange(l: Layer, r: FrameRangeSpec): Exposure[] {
   return l.exposureTrack.filter((e) => e.endFrame >= r.start && e.startFrame <= r.end);
 }
 
-function animatedInRange(o: SceneObject, r: FrameRangeSpec): boolean {
-  if (o.keyframes.length < 2) return false;
-  const a = sampleObject(o, r.start);
-  for (let f = r.start + 1; f <= r.end; f++) {
-    const b = sampleObject(o, f);
-    if (JSON.stringify(a) !== JSON.stringify(b)) return true;
-  }
+/** Moves within the range: its own animation, or a linked parent's (world matrix or opacity changes). */
+function animatedInRange(p: Project, o: SceneObject, r: FrameRangeSpec): boolean {
+  if (o.keyframes.length < 2 && !o.link) return false;
+  const at = (f: number) => JSON.stringify([worldMatrix(p, o, f), sampleObject(o, f).opacity]);
+  const a = at(r.start);
+  for (let f = r.start + 1; f <= r.end; f++) if (at(f) !== a) return true;
   return false;
 }
 
@@ -68,7 +68,7 @@ export function analyzeSvg(p: Project, r: FrameRangeSpec): SvgAnalysis {
     for (const e of spans) {
       const c = l.objectTracks.find((x) => x.id === e.contentId);
       for (const o of c?.objects ?? []) {
-        if (animatedInRange(o, r)) animated = true;
+        if (animatedInRange(p, o, r)) animated = true;
         if (o.kind === 'bitmap') usedAssets.add(o.assetRef);
         if (o.kind === 'text') hasText = true;
       }
@@ -207,9 +207,10 @@ export async function exportSvg(p: Project, s: SvgSettings, onProgress: Progress
       for (const o of pl.content.objects) {
         if (!o.visible) continue;
         const oid = `o-${o.id}`.replace(/[^a-zA-Z0-9_-]/g, '');
-        const first = sampleObject(o, Math.max(r.start, pl.span.startFrame));
-        const anim = animatedSingle && animatedInRange(o, { start: Math.max(r.start, pl.span.startFrame), end: Math.min(r.end, pl.span.endFrame) });
-        const m0 = transformMatrix(first.transform);
+        const f0 = Math.max(r.start, pl.span.startFrame);
+        const first = sampleObject(o, f0);
+        const anim = animatedSingle && animatedInRange(p, o, { start: f0, end: Math.min(r.end, pl.span.endFrame) });
+        const m0 = worldMatrix(p, o, f0);
         objs.push(`<g id="${oid}" transform="${mat(m0)}"${first.opacity < 1 ? ` opacity="${n(first.opacity)}"` : ''}>${objectMarkup(o, defs, prefix)}</g>`);
         if (anim) {
           const a = Math.max(r.start, pl.span.startFrame), b = Math.min(r.end, pl.span.endFrame);
@@ -218,14 +219,15 @@ export async function exportSvg(p: Project, s: SvgSettings, onProgress: Progress
             for (let f = a; f <= b; f++) {
               const smp = sampleObject(o, f);
               const pct = ((f - r.start) / Math.max(1, frames - 1)) * 100;
-              stops.push(`${n(pct)}%{transform:${mat(transformMatrix(smp.transform)).replace(/ /g, ',').replace('matrix(', 'matrix(')};opacity:${n(smp.opacity)}}`);
+              stops.push(`${n(pct)}%{transform:${mat(worldMatrix(p, o, f)).replace(/ /g, ',').replace('matrix(', 'matrix(')};opacity:${n(smp.opacity)}}`);
             }
             css.push(`#${oid}{animation:${oid} ${n(duration)}s linear ${s.loop ? 'infinite' : '1 forwards'};transform-origin:0 0;transform-box:view-box}@keyframes ${oid}{${stops.join('')}}`);
           } else {
             const m: string[] = [], op: number[] = [];
             for (let f = r.start; f <= r.end; f++) {
-              const smp = sampleObject(o, Math.min(b, Math.max(a, f)));
-              m.push(transformMatrix(smp.transform).map(n).join(' '));
+              const fc = Math.min(b, Math.max(a, f));
+              const smp = sampleObject(o, fc);
+              m.push(worldMatrix(p, o, fc).map(n).join(' '));
               op.push(n(smp.opacity));
             }
             jsFrames[oid] = { m, o: op };
@@ -255,7 +257,7 @@ export async function exportSvg(p: Project, s: SvgSettings, onProgress: Progress
       const c = l.objectTracks.find((x) => x.id === sp.contentId);
       for (const o of c?.objects ?? []) {
         for (let f = Math.max(r.start, sp.startFrame); f <= Math.min(r.end, sp.endFrame); f += Math.max(1, Math.floor(frames / 24))) {
-          const t = transformMatrix(sampleObject(o, f).transform);
+          const t = worldMatrix(p, o, f);
           const lb = cachedLocalBounds(o);
           for (const [x, y] of [[lb.x, lb.y], [lb.x + lb.width, lb.y], [lb.x, lb.y + lb.height], [lb.x + lb.width, lb.y + lb.height]]) {
             const X = t[0] * x + t[2] * y + t[4], Y = t[1] * x + t[3] * y + t[5];

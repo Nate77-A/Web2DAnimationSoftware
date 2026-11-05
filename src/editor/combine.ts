@@ -11,6 +11,7 @@ import paper from 'paper/dist/paper-core';
 import { identityTransform } from '../domain/defaults';
 import { brushOutline } from '../domain/brush';
 import { evaluateLayer, type EvalObject } from '../domain/evaluator';
+import { releaseChildren } from '../domain/links';
 import { objectSubpaths, segmentsBounds, type Subpath } from '../domain/geometry';
 import { newId } from '../domain/ids';
 import { invert, unionRects } from '../domain/math';
@@ -145,7 +146,9 @@ export function combineSelection(op: CombineOp): boolean {
   const meta = COMBINE_OPS.find((x) => x.id === op)!;
   const ids = r.objects.map((o) => o.id);
   const others = t.items.map((eo) => eo.source.id).filter((id) => id !== r.anchor.source.id);
-  const ok = commit(meta.command, (p) => removeObjects(replaceObject(p, r.anchor.source.id, r.objects as SceneObject[]), others), ids);
+  const inputs = t.items.map((eo) => eo.source.id);
+  // Children of the combined shapes stay where they are (unlinked).
+  const ok = commit(meta.command, (p) => removeObjects(replaceObject(releaseChildren(p, inputs, getState().currentFrame), r.anchor.source.id, r.objects as SceneObject[]), others), ids);
   if (ok) store.set({ selection: ids, activeLayerId: r.anchor.layerId });
   return ok;
 }
@@ -171,7 +174,7 @@ function overlaps(a: PaperShape, b: PaperShape): boolean {
 export function mergePaint(p: Project, layerId: string, frame: number, id: string): { project: Project; id: string } | null {
   const layer = p.layers.find((l) => l.id === layerId);
   if (!layer) return null;
-  const objs = evaluateLayer(layer, frame); // back to front
+  const objs = evaluateLayer(layer, frame, undefined, p); // back to front
   const mine = objs.find((e) => e.source.id === id);
   if (!mine) return null;
   const fresh = toPaper(mine);

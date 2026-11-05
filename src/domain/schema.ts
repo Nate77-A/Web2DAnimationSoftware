@@ -86,6 +86,11 @@ const objectBase = {
   style: styleSchema,
   metadata: z.record(z.string(), z.string()),
   keyframes: z.array(keyframeSchema),
+  /**
+   * Parent link: the object follows `parentId`. `bind` is the inverse of the parent's world matrix at the moment
+   * of linking, so the child does not jump; world = parentWorld × bind × own transform.
+   */
+  link: z.object({ parentId: z.string().min(1), bind: z.tuple([finite, finite, finite, finite, finite, finite]) }).optional(),
 };
 
 export const subpathSchema = z.object({ segments: z.array(segmentSchema), closed: z.boolean() });

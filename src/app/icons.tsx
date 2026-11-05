@@ -60,6 +60,8 @@ const P: Record<string, string> = {
   flipH: 'M12 3v18M16 7l4 5-4 5zM8 7l-4 5 4 5z',
   flipV: 'M3 12h18M7 8l5-4 5 4zM7 16l5 4 5-4z',
   grid: 'M3 3h18v18H3zM3 12h18M12 3v18',
+  link: 'M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7',
+  unlink: 'M18.8 13.4l1.7-1.7a5 5 0 00-7-7l-1.7 1.7M5.2 10.6l-1.7 1.7a5 5 0 007 7l1.7-1.7M8 2v3M2 8h3M16 22v-3M22 16h-3',
 };
 
 export function Icon({ name, size = 20, className = '' }: { name: string; size?: number; className?: string }) {

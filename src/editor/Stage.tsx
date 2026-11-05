@@ -8,7 +8,7 @@ import { cssColor } from '../domain/color';
 import type { Vec } from '../domain/schema';
 import { getAssetImage } from '../features/assets';
 import { checkerPattern, measureText, renderScene } from './renderer';
-import { docToScreen, fitViewport, screenToDoc, selectionInfo, viewMatrix, worldCorners, zoomAt } from './scene';
+import { docToScreen, fitViewport, frameObjects, screenToDoc, selectionInfo, viewMatrix, worldCorners, zoomAt } from './scene';
 import {
   activeTool, beginGesture, cancelGesture, commit, endGesture, getState, store, updateGesture, useApp,
 } from './state';
@@ -321,7 +321,7 @@ function Overlay() {
   const s = useApp((st) => ({
     selection: st.selection, project: st.project, viewport: st.viewport, frame: st.currentFrame, overlay: st.overlay,
     tool: activeTool(st), editing: st.editingTextId, penHandles: st.toolOptions.pen.showHandles, size: st.stageSize, playing: st.playing,
-    pathEdit: st.pathEdit,
+    pathEdit: st.pathEdit, showLinks: st.panels.links,
   }));
   const v = s.viewport;
   const toS = (p: Vec) => docToScreen(v, p);
@@ -360,6 +360,7 @@ function Overlay() {
       {o.zoomBox && (() => { const a = toS([o.zoomBox.x, o.zoomBox.y]); return <rect x={a[0]} y={a[1]} width={o.zoomBox.width * v.zoom} height={o.zoomBox.height * v.zoom} className="marquee" />; })()}
       {o.pen && <PenPreview pen={o.pen} toS={toS} showHandles={s.penHandles} />}
       {pe && <PathEditOverlay pe={pe} toS={toS} />}
+      {s.showLinks && !s.playing && <LinkLines toS={toS} />}
       {o.eraser && s.tool === 'eraser' && (() => { const c = toS(o.eraser.pos); return <circle cx={c[0]} cy={c[1]} r={o.eraser.r * v.zoom} className="tool-cursor" />; })()}
       {o.brushCursor && (s.tool === 'brush' || s.tool === 'paint') && (() => { const c = toS(o.brushCursor.pos); return <circle cx={c[0]} cy={c[1]} r={Math.max(1.5, o.brushCursor.r * v.zoom)} className="tool-cursor" />; })()}
     </svg>
@@ -436,6 +437,28 @@ function PathEditOverlay({ pe, toS }: { pe: NonNullable<ReturnType<typeof getSta
         const c = screenSegs[pe.hold].p;
         return <circle cx={c[0]} cy={c[1]} r={11} className="pe-hold" pathLength={100} />;
       })()}
+    </g>
+  );
+}
+
+/** While the Linked Objects window is open: a dashed line from each linked child to its parent. */
+function LinkLines({ toS }: { toS: (p: Vec) => Vec }) {
+  const st = getState();
+  const objs = frameObjects(st, {});
+  const byId = new Map(objs.map((eo) => [eo.source.id, eo]));
+  const pivot = (eo: (typeof objs)[number]) => toS(apply(eo.matrix, [eo.source.transform.pivotX, eo.source.transform.pivotY]));
+  return (
+    <g>
+      {objs.filter((eo) => eo.source.link && byId.has(eo.source.link.parentId)).map((eo) => {
+        const a = pivot(byId.get(eo.source.link!.parentId)!), b = pivot(eo);
+        return (
+          <g key={eo.source.id}>
+            <line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className="link-line" />
+            <circle cx={a[0]} cy={a[1]} r={4} className="link-parent" />
+            <circle cx={b[0]} cy={b[1]} r={3} className="link-child" />
+          </g>
+        );
+      })}
     </g>
   );
 }

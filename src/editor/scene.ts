@@ -33,7 +33,7 @@ export function frameObjects(s: AppState, opts: { editableOnly?: boolean; layerI
     if (!isLayerEffectivelyVisible(s.project, layer)) continue;
     if (opts.editableOnly && layer.locked) continue;
     if (opts.layerIds && !opts.layerIds.includes(layer.id)) continue;
-    const objs = evaluateLayer(layer, s.currentFrame);
+    const objs = evaluateLayer(layer, s.currentFrame, undefined, s.project);
     for (let j = objs.length - 1; j >= 0; j--) {
       if (opts.editableOnly && objs[j].source.locked) continue;
       out.push(objs[j]);

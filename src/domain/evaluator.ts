@@ -1,6 +1,7 @@
 // Pure timeline evaluator: (Project, frame) -> renderable scene. The stage preview and every exporter
 // call this same function, so preview frames equal exported frames.
-import { type Matrix, transformMatrix, lerp } from './math';
+import { parentSpace } from './links';
+import { type Matrix, multiply, transformMatrix, lerp } from './math';
 import type { BlendMode, Content, Ease, Exposure, Keyframe, Layer, Project, SceneObject, Transform } from './schema';
 
 export interface EvalObject {
@@ -87,14 +88,20 @@ function isSorted(k: Keyframe[]): boolean {
   return true;
 }
 
-export function evaluateLayer(layer: Layer, frame: number, skip?: Set<string>): EvalObject[] {
+/**
+ * Objects of a layer on a frame. Pass the project so linked children follow their parents (in any layer);
+ * without it, matrices are the objects' own transforms.
+ */
+export function evaluateLayer(layer: Layer, frame: number, skip?: Set<string>, project?: Project): EvalObject[] {
   const content = contentAt(layer, frame);
   if (!content) return [];
   const out: EvalObject[] = [];
   for (const o of content.objects) {
     if (!o.visible || skip?.has(o.id)) continue;
     const { transform, opacity } = sampleObject(o, frame);
-    out.push({ source: o, layerId: layer.id, transform, opacity, matrix: transformMatrix(transform) });
+    const own = transformMatrix(transform);
+    const matrix = project && o.link ? multiply(parentSpace(project, o, frame), own) : own;
+    out.push({ source: o, layerId: layer.id, transform, opacity, matrix });
   }
   return out;
 }
@@ -104,7 +111,7 @@ export function evaluateFrame(project: Project, frame: number, opts: EvaluateOpt
   for (const layer of project.layers) {
     if (!opts.includeHidden && !isLayerEffectivelyVisible(project, layer)) continue;
     if (opts.layerIds && !opts.layerIds.includes(layer.id)) continue;
-    layers.push({ id: layer.id, blendMode: layer.blendMode, objects: evaluateLayer(layer, frame, opts.skipObjectIds) });
+    layers.push({ id: layer.id, blendMode: layer.blendMode, objects: evaluateLayer(layer, frame, opts.skipObjectIds, project) });
   }
   return { frame, width: project.width, height: project.height, background: project.background, layers };
 }

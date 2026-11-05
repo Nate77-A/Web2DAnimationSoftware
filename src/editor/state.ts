@@ -54,7 +54,7 @@ export interface ToolOptions {
   eyedropper: { target: 'fill' | 'stroke'; allLayers: boolean };
 }
 
-export interface PanelState { tools: boolean; properties: boolean; timeline: boolean }
+export interface PanelState { tools: boolean; properties: boolean; timeline: boolean; links: boolean }
 
 /** Path edit mode (double-click a path, shape or brush stroke with the Select tool). */
 export interface PathEditState {
@@ -144,7 +144,7 @@ export function initialState(project: Project = createProject()): AppState {
     pathEdit: null,
     viewport: { panX: 0, panY: 0, zoom: 0.5 },
     stageSize: { width: 800, height: 600 },
-    panels: { tools: true, properties: true, timeline: true },
+    panels: { tools: true, properties: true, timeline: true, links: false },
     showGuides: false,
     debugMarkers: false,
     markers: [],

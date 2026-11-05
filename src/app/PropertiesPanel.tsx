@@ -9,6 +9,7 @@ import { cmdAddKeyframe, cmdCreateTween, cmdRemoveKeyframe, arrange, flipSelecti
 import { cachedLocalBounds, clearMeasureCache } from '../editor/renderer';
 import { commit, commitMerge, getState, setToolOptions, store, useApp, activeTool } from '../editor/state';
 import { combineSelection, combineTargets, COMBINE_OPS } from '../editor/combine';
+import { objectAt, unlinkObject } from '../domain/links';
 import { editablePath } from '../editor/pathEdit';
 import { enterPathEdit, exitPathEdit } from '../editor/pathEditTool';
 import { fitToStage, setZoom } from '../editor/Stage';
@@ -329,6 +330,7 @@ function SingleObject({ o, frame, layerId }: { o: SceneObject; frame: number; la
           <Check label="Visible" checked={o.visible} onChange={(v) => upd('Toggle visibility', (x) => ({ ...x, visible: v }))} />
         </div>
         {editablePath(o) && <EditPointsButton id={id} brush={o.kind === 'path' && !!o.brush} shape={o.kind === 'shape'} />}
+        {o.link && <LinkInfo id={id} parentId={o.link.parentId} frame={frame} />}
       </Section>
       <Section title="Transform">
         <div className="grid2">
@@ -590,5 +592,19 @@ function CombineSection() {
       </div>
       <p className="hint">{t.ok ? 'Front and back follow the stacking order (Front / Back buttons). The result replaces the selected shapes.' : t.reason}</p>
     </Section>
+  );
+}
+
+function LinkInfo({ id, parentId, frame }: { id: string; parentId: string; frame: number }) {
+  const parent = useApp((st) => objectAt(st.project, parentId, frame)?.object.name);
+  return (
+    <div className="row link-info">
+      <Icon name="link" size={14} />
+      <span className="hint" style={{ flex: 1 }}>
+        {parent ? <>Follows <strong>{parent}</strong>. Its transform values are relative to that link.</> : 'Linked to an object that isn’t on this frame, so it moves on its own here.'}
+      </span>
+      <button className="btn sm" data-tip="Unlink" data-tip-desc="Stop following the parent. The object stays exactly where it is."
+        onClick={() => commit('Unlink', (p) => unlinkObject(p, id, frame), [id])}>Unlink</button>
+    </div>
   );
 }

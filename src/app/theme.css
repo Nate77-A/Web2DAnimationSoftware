@@ -427,3 +427,50 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
   position: absolute; right: 14px; bottom: 42px; z-index: 4; display: inline-flex; align-items: center; gap: 8px; padding: 4px 4px 4px 10px;
   background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius); color: var(--text); font-size: 12px; backdrop-filter: blur(6px);
 }
+
+/* Linked Objects floating window */
+.linked-panel {
+  position: fixed; z-index: 65; width: 280px; max-height: min(460px, calc(100vh - 120px)); display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--outline); border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.lo-head { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--outline); cursor: grab; user-select: none; touch-action: none; }
+.lo-head:active { cursor: grabbing; }
+.lo-head strong { font-size: 13px; }
+.lo-frame { margin-left: auto; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.lo-hint { margin: 0; padding: 8px 12px 4px; }
+.lo-body { overflow: auto; padding: 4px 6px 8px; min-height: 60px; }
+.lo-empty { padding: 4px 6px; }
+.lo-layer-head {
+  display: flex; align-items: center; gap: 6px; margin-top: 6px; padding: 4px 6px; border-radius: var(--radius-sm);
+  font-size: 11px; font-weight: 650; letter-spacing: .5px; text-transform: uppercase; color: var(--text-2); border: 1px dashed transparent;
+}
+.lo-layer-head .layer-color { width: 8px; height: 8px; border-radius: 2px; }
+.lo-layer-head.drop-ok { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.lo-row {
+  display: flex; align-items: center; gap: 6px; height: 32px; padding-right: 4px; border-radius: var(--radius-sm); border: 1px solid transparent;
+  font-size: 13px; color: var(--text); cursor: grab; user-select: none; touch-action: none;
+}
+.lo-row:hover { background: var(--raised); }
+.lo-row:focus-visible { box-shadow: var(--focus); outline: none; }
+.lo-row.selected { background: var(--accent-soft); }
+.lo-row.dragging { opacity: .45; }
+.lo-row.drop-ok { border-color: var(--accent); background: var(--accent-soft); }
+.lo-row.drop-no { border-color: var(--danger); }
+.lo-row .icon { flex: none; color: var(--text-2); }
+.lo-thumb {
+  flex: none; border-radius: 4px; border: 1px solid var(--outline);
+  background: repeating-conic-gradient(#d9dde3 0 25%, #fff 0 50%) 0 0 / 8px 8px; /* artboard-style checkerboard */
+}
+.lo-row .lo-link-mark { color: var(--accent); margin-left: -14px; }
+.lo-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lo-layer { flex: none; font-size: 10px; padding: 1px 5px; border-radius: 4px; background: var(--raised); color: var(--text-2); }
+.lo-unlink { opacity: .7; }
+.lo-row:hover .lo-unlink, .lo-unlink:focus-visible { opacity: 1; }
+.lo-ghost {
+  position: fixed; z-index: 100; pointer-events: none; padding: 4px 8px; border-radius: var(--radius-sm); font-size: 12px; white-space: nowrap;
+  background: #0d0f12; color: var(--text); border: 1px solid var(--accent); box-shadow: var(--shadow);
+}
+.lo-ghost.no { border-color: var(--danger); }
+.link-line { stroke: var(--accent); stroke-width: 1.25; stroke-dasharray: 4 3; opacity: .85; }
+.link-parent { fill: var(--accent); stroke: #fff; stroke-width: 1; }
+.link-child { fill: #fff; stroke: var(--accent); stroke-width: 1.25; }

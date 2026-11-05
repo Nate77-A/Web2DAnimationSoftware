@@ -6,7 +6,8 @@ import { identityTransform } from '../domain/defaults';
 import { evaluateFrame, type EvalObject } from '../domain/evaluator';
 import { segmentsBounds } from '../domain/geometry';
 import { newId } from '../domain/ids';
-import { apply, applyVector, DEG, dist, invert, type Rect, rotate, transformMatrix } from '../domain/math';
+import { parentSpace, transformIn } from '../domain/links';
+import { apply, applyVector, DEG, dist, invert, type Matrix, type Rect, rotate, transformMatrix } from '../domain/math';
 import { addObjects, locateObject, mapObjects, removeObjects, replaceObject, setObjectTransform } from '../domain/ops';
 import { evaluateLayer, isLayerEffectivelyVisible, sampleObject } from '../domain/evaluator';
 import type { Paint, PathObject, Project, SceneObject, Segment, ShapeObject, Style, TextObject, Transform, Vec } from '../domain/schema';
@@ -136,19 +137,32 @@ export function handleGeometry(info: SelectionInfo): { points: Record<HandleId, 
 
 // ------------------------------------------------------------------ select / transform
 
-interface DragOrig { id: string; t: Transform; opacity: number }
+/**
+ * Transform of a dragged object at drag start. For a linked child `t` is where it appears on stage (its own
+ * transform taken through `space`, the parent space), so all drag math works in document space.
+ */
+interface DragOrig { id: string; t: Transform; opacity: number; space: Matrix | null }
 
 function sampledOrig(project: Project, ids: string[], frame: number): DragOrig[] {
   return ids.flatMap((id) => {
     const loc = locateObject(project, id);
     if (!loc) return [];
     const smp = sampleObject(loc.object, frame);
-    return [{ id, t: smp.transform, opacity: smp.opacity }];
+    const space = loc.object.link ? parentSpace(project, loc.object, frame) : null;
+    return [{ id, t: space ? transformIn(space, smp.transform) : smp.transform, opacity: smp.opacity, space }];
   });
 }
 
-function applyTransforms(base: Project, frame: number, next: Map<string, Partial<Transform>>): Project {
-  return mapObjects(base, next.keys(), (o) => setObjectTransform(o, frame, next.get(o.id)!));
+/** Writes document-space transform changes; linked children get them converted back into their own space. */
+function applyTransforms(base: Project, frame: number, origs: DragOrig[], next: Map<string, Partial<Transform>>): Project {
+  const byId = new Map(origs.map((o) => [o.id, o]));
+  return mapObjects(base, next.keys(), (o) => {
+    const patch = next.get(o.id)!;
+    const orig = byId.get(o.id);
+    if (!orig?.space) return setObjectTransform(o, frame, patch);
+    const own = transformIn(invert(orig.space), { ...orig.t, ...patch });
+    return setObjectTransform(o, frame, { x: own.x, y: own.y, rotation: own.rotation, scaleX: own.scaleX, scaleY: own.scaleY });
+  });
 }
 
 function createSelectTool(withHandles: boolean): Tool {
@@ -226,7 +240,7 @@ function createSelectTool(withHandles: boolean): Tool {
         if (!moved && Math.hypot(dx, dy) * s.viewport.zoom < 2) return;
         moved = true;
         if (e.shift) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
-        updateGesture((base) => applyTransforms(base, frame, new Map(orig.map((o) => [o.id, { x: o.t.x + dx, y: o.t.y + dy }]))));
+        updateGesture((base) => applyTransforms(base, frame, orig, new Map(orig.map((o) => [o.id, { x: o.t.x + dx, y: o.t.y + dy }]))));
         return;
       }
       if (mode === 'rotate' && info) {
@@ -240,7 +254,7 @@ function createSelectTool(withHandles: boolean): Tool {
           delta = target - (info.single ? orig[0].t.rotation : 0);
         }
         const r = rotate(delta);
-        updateGesture((base) => applyTransforms(base, frame, new Map(orig.map((o) => {
+        updateGesture((base) => applyTransforms(base, frame, orig, new Map(orig.map((o) => {
           const v = applyVector(r, [o.t.x - c[0], o.t.y - c[1]]);
           return [o.id, { rotation: o.t.rotation + delta, x: c[0] + v[0], y: c[1] + v[1] }];
         }))));
@@ -272,7 +286,7 @@ function createSelectTool(withHandles: boolean): Tool {
           const aOld = qa;
           const aNew: Vec = [sx * (al[0] - o.t.pivotX), sy * (al[1] - o.t.pivotY)];
           const d = applyVector(rotate(o.t.rotation), [aOld[0] - aNew[0], aOld[1] - aNew[1]]);
-          updateGesture((base) => applyTransforms(base, frame, new Map([[o.id, { scaleX: sx, scaleY: sy, x: o.t.x + d[0], y: o.t.y + d[1] }]])));
+          updateGesture((base) => applyTransforms(base, frame, orig, new Map([[o.id, { scaleX: sx, scaleY: sy, x: o.t.x + d[0], y: o.t.y + d[1] }]])));
         } else {
           const b = info.bounds;
           const hp = handleLocal(b, h);
@@ -283,7 +297,7 @@ function createSelectTool(withHandles: boolean): Tool {
             if (corner) { const k = Math.abs(fx) > Math.abs(fy) ? fx : fy; fx = fy = k; }
             else if (horiz) fy = Math.abs(fx); else fx = Math.abs(fy);
           }
-          updateGesture((base) => applyTransforms(base, frame, new Map(orig.map((o) => [o.id, {
+          updateGesture((base) => applyTransforms(base, frame, orig, new Map(orig.map((o) => [o.id, {
             x: ap[0] + (o.t.x - ap[0]) * fx, y: ap[1] + (o.t.y - ap[1]) * fy,
             scaleX: safeScale(o.t.scaleX * fx), scaleY: safeScale(o.t.scaleY * fy),
           }]))));
@@ -399,7 +413,7 @@ function applyEraser(base: Project, frame: number, layerIds: string[], circles: 
   for (const layerId of layerIds) {
     const layer = p.layers.find((l) => l.id === layerId);
     if (!layer) continue;
-    for (const eo of evaluateLayer(layer, frame)) {
+    for (const eo of evaluateLayer(layer, frame, undefined, p)) {
       const o = eo.source;
       if (o.locked) continue;
       if (mode === 'delete') {

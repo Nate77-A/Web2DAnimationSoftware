@@ -101,7 +101,8 @@ def({ id: 'tl.fit', label: 'Fit Selection in Timeline', help: 'Zoom the timeline
 def({ id: 'win.tools', label: 'Tools', help: 'Show or hide the tool rail on the left.', run: () => togglePanel('tools'), checked: () => getState().panels.tools });
 def({ id: 'win.properties', label: 'Properties', help: 'Show or hide the properties panel on the right.', run: () => togglePanel('properties'), checked: () => getState().panels.properties });
 def({ id: 'win.timeline', label: 'Timeline', help: 'Show or hide the timeline at the bottom.', run: () => togglePanel('timeline'), checked: () => getState().panels.timeline });
-def({ id: 'win.reset', label: 'Show All Panels', help: 'Bring back any panels you have hidden.', run: () => store.set({ panels: { tools: true, properties: true, timeline: true } }) });
+def({ id: 'win.links', label: 'Linked Objects', help: 'Open the floating Linked Objects window: drag one object onto another to make it follow that object.', run: () => togglePanel('links'), checked: () => getState().panels.links });
+def({ id: 'win.reset', label: 'Show All Panels', help: 'Bring back any panels you have hidden.', run: () => store.set((s) => ({ panels: { ...s.panels, tools: true, properties: true, timeline: true } })) });
 def({ id: 'help.shortcuts', label: 'Keyboard Shortcuts', help: 'List every keyboard shortcut.', keys: ['Shift+?'], run: () => store.set({ dialog: { kind: 'shortcuts' } }) });
 def({ id: 'help.about', label: 'About & Known Limits', help: 'Version information and current limitations of the app.', run: () => store.set({ dialog: { kind: 'about' } }) });
 
@@ -138,7 +139,7 @@ export const MENUS: { id: string; label: string; help: string; items: (string | 
   { id: 'edit', label: 'Edit', help: 'Undo, clipboard, selection, stacking order and flipping.', items: ['edit.undo', 'edit.redo', '-', 'edit.cut', 'edit.copy', 'edit.paste', 'edit.duplicate', 'edit.delete', '-', 'edit.selectAll', 'edit.deselect', '-', 'edit.front', 'edit.forward', 'edit.backward', 'edit.back', '-', 'edit.flipH', 'edit.flipV', '-', ...COMBINE_OPS.map((op) => `combine.${op.id}`)] },
   { id: 'view', label: 'View', help: 'Zoom, guides and onion skin.', items: ['view.zoomIn', 'view.zoomOut', 'view.fit', 'view.actual', '-', 'view.guides', 'view.onion', 'view.markers'] },
   { id: 'timeline', label: 'Timeline', help: 'Playback, frames, keyframes, tweens and layers.', items: ['tl.play', 'tl.loop', '-', 'tl.insertFrame', 'tl.deleteFrame', 'tl.duplicateFrame', 'tl.blankFrame', 'tl.clearFrame', '-', 'tl.tween', 'tl.addKey', 'tl.removeKey', '-', 'tl.addLayer', 'tl.duplicateLayer', 'tl.deleteLayer', '-', 'tl.zoomIn', 'tl.zoomOut', 'tl.fit'] },
-  { id: 'window', label: 'Window', help: 'Show or hide panels, keyboard shortcuts and app info.', items: ['win.tools', 'win.properties', 'win.timeline', 'win.reset', '-', 'help.shortcuts', 'help.about'] },
+  { id: 'window', label: 'Window', help: 'Show or hide panels, keyboard shortcuts and app info.', items: ['win.tools', 'win.properties', 'win.timeline', 'win.links', 'win.reset', '-', 'help.shortcuts', 'help.about'] },
 ];
 
 export function formatKeys(keys?: string[]): string {

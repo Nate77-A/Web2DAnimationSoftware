@@ -589,6 +589,84 @@ await shot('04-final');
   await ctx4.close();
 }
 
+// Linked Objects (fresh context)
+{
+  const ctx5 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const pg = await ctx5.newPage();
+  pg.on('console', (m) => { if (m.type() === 'error') errors.push('links: ' + m.text()); });
+  pg.on('pageerror', (e) => errors.push('links pageerror: ' + e.message));
+  await pg.goto('http://localhost:4173/');
+  await pg.waitForSelector('.stage canvas');
+  await pg.waitForTimeout(400);
+  const st = () => pg.evaluate(() => window.__studio.get());
+  const objs = async () => (await st()).project.layers.flatMap((l) => l.objectTracks.flatMap((c) => c.objects));
+  const box = await pg.locator('.stage').boundingBox();
+  const P = async (x, y) => { const v = (await st()).viewport; return [box.x + v.panX + x * v.zoom, box.y + v.panY + y * v.zoom]; };
+  const drag = async (from, to) => { await pg.mouse.move(...from); await pg.mouse.down(); await pg.mouse.move(...to, { steps: 8 }); await pg.mouse.up(); };
+  await pg.keyboard.press('u');
+  await drag(await P(300, 300), await P(500, 500));
+  await drag(await P(700, 300), await P(800, 400));
+  const [body, hand] = await objs();
+  await pg.evaluate(([a, b]) => {
+    const s = window.__studio.get();
+    const rename = (o) => (o.id === a ? { ...o, name: 'Body' } : o.id === b ? { ...o, name: 'Hand' } : o);
+    window.__studio.set({ project: { ...s.project, layers: s.project.layers.map((l) => ({ ...l, objectTracks: l.objectTracks.map((c) => ({ ...c, objects: c.objects.map(rename) })) })) } });
+  }, [body.id, hand.id]);
+
+  await pg.getByRole('menuitem', { name: 'Window' }).click();
+  await pg.getByRole('menuitemcheckbox', { name: 'Linked Objects' }).click();
+  const panel = pg.locator('.linked-panel');
+  check('Window › Linked Objects opens the floating window listing the objects', (await panel.count()) === 1
+    && (await panel.locator('.lo-row', { hasText: 'Body' }).count()) === 1 && (await panel.locator('.lo-row', { hasText: 'Hand' }).count()) === 1);
+
+  const rowCenter = async (name) => { const b = await panel.locator('.lo-row', { hasText: name }).boundingBox(); return [b.x + b.width / 2, b.y + b.height / 2]; };
+  await drag(await rowCenter('Hand'), await rowCenter('Body'));
+  const linked = (await objs()).find((o) => o.id === hand.id);
+  check('dragging an object onto another links it as a child', linked.link?.parentId === body.id
+    && (await panel.locator('.lo-row[style*="padding-left: 24px"]', { hasText: 'Hand' }).count()) === 1 && (await pg.locator('.link-line').count()) === 1);
+
+  const handOwn0 = JSON.stringify((await objs()).find((o) => o.id === hand.id).transform);
+  const outlineOf = async (id) => {
+    await pg.evaluate((x) => window.__studio.set({ selection: [x] }), id);
+    await pg.waitForTimeout(80);
+    const pts = (await pg.locator('.sel-object').first().getAttribute('points')).split(' ').map((p) => p.split(',').map(Number));
+    return [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1]))];
+  };
+  const handAt0 = await outlineOf(hand.id);
+  await pg.keyboard.press('v');
+  await pg.evaluate(() => window.__studio.set({ selection: [] }));
+  await drag(await P(400, 400), await P(500, 450));
+  const s1 = await st();
+  const handAt1 = await outlineOf(hand.id);
+  const dx = (handAt1[0] - handAt0[0]) / s1.viewport.zoom, dy = (handAt1[1] - handAt0[1]) / s1.viewport.zoom;
+  check('moving the parent moves the child with it', s1.past.at(-1).label === 'Move' && Math.abs(dx - 100) < 1.5 && Math.abs(dy - 50) < 1.5
+    && JSON.stringify((await objs()).find((o) => o.id === hand.id).transform) === handOwn0, `child moved ${dx.toFixed(1)}, ${dy.toFixed(1)}`);
+  // With the parent turned a quarter turn, dragging the child right still moves it right on screen.
+  await pg.evaluate((id) => {
+    const s = window.__studio.get();
+    const turn = (o) => (o.id === id ? { ...o, transform: { ...o.transform, rotation: 90 } } : o);
+    window.__studio.set({ project: { ...s.project, layers: s.project.layers.map((l) => ({ ...l, objectTracks: l.objectTracks.map((c) => ({ ...c, objects: c.objects.map(turn) })) })) } });
+  }, body.id);
+  const rotAt0 = await outlineOf(hand.id);
+  const z = (await st()).viewport.zoom;
+  const grab = [box.x + rotAt0[0] + 22 * z, box.y + rotAt0[1] + 22 * z]; // outline points are relative to the stage
+  await drag(grab, [grab[0] + 120 * z, grab[1]]);
+  const rotAt1 = await outlineOf(hand.id);
+  const rdx = (rotAt1[0] - rotAt0[0]) / z, rdy = (rotAt1[1] - rotAt0[1]) / z;
+  check('dragging a child of a rotated parent moves it the way you drag', Math.abs(rdx - 120) < 2 && Math.abs(rdy) < 2, `moved ${rdx.toFixed(1)}, ${rdy.toFixed(1)}`);
+  const outline = await pg.locator('.sel-object').first().getAttribute('points');
+
+  const before = outline;
+  const layerHead = await panel.locator('.lo-layer-head').first().boundingBox();
+  await drag(await rowCenter('Hand'), [layerHead.x + 30, layerHead.y + layerHead.height / 2]);
+  await pg.evaluate((id) => window.__studio.set({ selection: [id] }), hand.id);
+  await pg.waitForTimeout(100);
+  check('dropping on a layer name unlinks it without moving it', !(await objs()).find((o) => o.id === hand.id).link
+    && (await pg.locator('.sel-object').first().getAttribute('points')) === before && (await pg.locator('.link-line').count()) === 0);
+  await pg.screenshot({ path: `${SHOTS}/10-linked-objects.png` });
+  await ctx5.close();
+}
+
 check('no console errors', errors.length === 0, errors.join(' | '));
 await browser.close();
 server.close();

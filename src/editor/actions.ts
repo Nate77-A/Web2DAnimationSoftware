@@ -2,8 +2,9 @@
 import { identityTransform } from '../domain/defaults';
 import { isLayerEffectivelyVisible, contentAt } from '../domain/evaluator';
 import { newId } from '../domain/ids';
+import { ownDelta, releaseChildren } from '../domain/links';
 import {
-  addBlankKeyframe, addKeyframe, addLayer, addObjects, arrangeObjects, clearFrame, cloneObject, createTween, deleteLayer,
+  addBlankKeyframe, addKeyframe, addLayer, addObjects, arrangeObjects, clearFrame, cloneObjects, createTween, deleteLayer,
   duplicateFrame, duplicateLayer, insertFrames, locateObject, mapObjects, moveLayer, removeFrames, removeKeyframe, removeObjects,
   setObjectTransform, updateLayer, type ArrangeMode,
 } from '../domain/ops';
@@ -38,7 +39,8 @@ export function deleteSelection() {
   const s = getState();
   if (!s.selection.length) return;
   const ids = s.selection;
-  commit(ids.length > 1 ? `Delete ${ids.length} objects` : 'Delete object', (p) => removeObjects(p, ids), ids);
+  // Children of deleted objects stay where they are (unlinked) instead of jumping.
+  commit(ids.length > 1 ? `Delete ${ids.length} objects` : 'Delete object', (p) => removeObjects(releaseChildren(p, ids, s.currentFrame), ids), ids);
   store.set({ selection: [] });
 }
 
@@ -64,10 +66,11 @@ export function paste(offset = 20) {
   if (!l) return;
   const s = getState();
   const frame = s.currentFrame;
-  const copies = clipboard.map((o) => {
-    const c = cloneObject(o);
-    return { ...c, transform: { ...c.transform, x: c.transform.x + offset, y: c.transform.y + offset }, keyframes: c.keyframes.map((k) => ({ ...k, x: k.x + offset, y: k.y + offset })) };
-  });
+  const cloned = cloneObjects(clipboard);
+  const batch = new Set(cloned.map((c) => c.id));
+  // Children pasted with their parent follow it, so only offset the others.
+  const copies = cloned.map((c) => (c.link && batch.has(c.link.parentId) ? c
+    : { ...c, transform: { ...c.transform, x: c.transform.x + offset, y: c.transform.y + offset }, keyframes: c.keyframes.map((k) => ({ ...k, x: k.x + offset, y: k.y + offset })) }));
   commit('Paste', (p) => addObjects(p, l.id, frame, copies), copies.map((c) => c.id));
   store.set({ selection: copies.map((c) => c.id) });
   clipboard = copies.map((c) => structuredClone(c));
@@ -84,7 +87,8 @@ export function nudgeSelection(dx: number, dy: number) {
   const frame = s.currentFrame;
   commit('Nudge', (p) => mapObjects(p, s.selection, (o) => {
     const t = sampleObject(o, frame).transform;
-    return setObjectTransform(o, frame, { x: t.x + dx, y: t.y + dy });
+    const [ox, oy] = ownDelta(p, o, frame, dx, dy); // linked children move by the same on-screen amount
+    return setObjectTransform(o, frame, { x: t.x + ox, y: t.y + oy });
   }), s.selection);
 }
 

@@ -15,7 +15,7 @@ npm run preview      # serve the production build locally
 npm run build:single # dist-single/index.html — everything inlined in one file
 npm run check        # typecheck (app + tests) + unit tests + production build
 npx playwright install chromium     # once, to download the test browser
-npm run build && npm run test:e2e   # Playwright desktop workflows (80 checks)
+npm run build && npm run test:e2e   # Playwright desktop workflows (85 checks)
 npm run build && npm run test:visual  # desktop + iPad-sized screenshots into test-results/
 ```
 
@@ -34,7 +34,7 @@ and set **Source** to **GitHub Actions**.
 
 | Area | Features |
 |---|---|
-| Workspace | Top bar (File / Edit / View / Timeline / Window menus with shortcuts, undo/redo, project name, autosave status, Export). The tool rail has 12 tools plus fill/stroke swatches. Panels show and hide from the Window menu. Properties are context-sensitive. A resizable timeline is docked below |
+| Workspace | Floating Linked Objects window (Window menu) for parent/child links between objects. Top bar (File / Edit / View / Timeline / Window menus with shortcuts, undo/redo, project name, autosave status, Export). The tool rail has 12 tools plus fill/stroke swatches. Panels show and hide from the Window menu. Properties are context-sensitive. A resizable timeline is docked below |
 | Stage | Artboard on a pasteboard with a transparency checkerboard. Zoom runs from 12.5 % to 3200 %, anchored at the pointer. The `125%` zoom field and `1920 × 1080` size popover sit top-right. Fit to stage, Space/middle/finger pan, two-finger pinch, center and safe-area guides, onion skin, and coordinate debug markers |
 | Tools | Select, Move/Rotate/Scale (constant-size handles; Shift and Alt modifiers; pivot; flip; reset). Path edit mode: double-click a path, shape or brush stroke to drag anchors and handles, bend the path between anchors, double-click to add or delete anchors, and hold an anchor to toggle smooth/sharp. Combine shapes: Unite, Minus front, Intersect, Exclude and Divide. Brush (pressure, tilt, smoothing, caps, opacity). Paint Brush (paints fills with the fill color; same-color strokes merge into one shape). Eraser (split brush strokes and rub out Paint Brush paint / delete objects, all-layers toggle). Shape (rectangle with corner radius, ellipse, triangle, N-sided polygon). Pen (Bézier, click-drag handles, Enter finishes / Esc cancels). Text (in-place editing with full typography). Paint Bucket, Eyedropper, Hand, Zoom |
 | Color | Solid, linear and radial paints, RGBA/hex input, alpha, a gradient stop editor (drag, keyboard, add/remove), recent colors |
