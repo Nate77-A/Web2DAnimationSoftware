@@ -7,13 +7,14 @@ import {
   cmdAddLayer, cmdBlankFrame, cmdCreateTween, cmdDeleteFrames, cmdDeleteLayer, cmdDuplicateFrame, cmdDuplicateLayer, cmdInsertFrame,
   cmdMoveLayer, cmdUpdateLayer, goToFrame, toggleSolo, cmdAddKeyframe,
 } from '../editor/actions';
-import { clampedMove, keyId, keysInRange, spanTweenKeys, type KeyRef } from '../domain/keyframes';
+import { clampedMove, keyId, keysInRange, objectTracks, spanTweenKeys, type KeyRef, type ObjectTrack } from '../domain/keyframes';
 import type { Ease } from '../domain/schema';
 import { copyFrames, copyKeys, deleteFrameRange, deleteKeys, keyEase, pasteClip, setKeyEase, type TimelineClip } from '../domain/timelineClipboard';
 import { beginGesture, cancelGesture, commit, commitMerge, endGesture, getState, store, toast, updateGesture, useApp } from '../editor/state';
 import { commands, formatKeys, FPS_HELP, setPref, setTimelineZoom } from '../app/commands';
 import { useDismiss, usePopoverPosition } from '../app/controls';
 import { Icon } from '../app/icons';
+import { ObjectThumb } from '../app/LinkedObjectsPanel';
 import { play, stop } from './playback';
 
 const ROW_H = 28;
@@ -62,8 +63,9 @@ function FpsControl() {
   );
 }
 
-function LayerRow({ layer, index, total, active, effVisible, onDragStart, dropHint }: {
+function LayerRow({ layer, index, total, active, effVisible, onDragStart, dropHint, tracks, expanded, onToggle }: {
   layer: Layer; index: number; total: number; active: boolean; effVisible: boolean; onDragStart: (e: React.PointerEvent, id: string) => void; dropHint: 'before' | 'after' | null;
+  tracks: number; expanded: boolean; onToggle: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(layer.name);
@@ -78,6 +80,14 @@ function LayerRow({ layer, index, total, active, effVisible, onDragStart, dropHi
       style={{ height: rowHeight() }}
       onClick={() => store.set({ activeLayerId: layer.id })}
     >
+      {tracks > 0 ? (
+        <button type="button" className="icon-btn sm layer-expand" aria-expanded={expanded} aria-label={`${expanded ? 'Collapse' : 'Expand'} ${layer.name}`}
+          data-tip={expanded ? 'Collapse motion tweens' : `Show ${tracks} motion tween${tracks > 1 ? 's' : ''}`}
+          data-tip-desc={expanded ? 'Fold the per-object rows back into this layer row.' : 'Show each animated object on its own row, so you can select, move, copy and ease its keyframes separately.'}
+          onClick={(e: React.MouseEvent) => { e.stopPropagation(); onToggle(); }}>
+          <Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={14} />
+        </button>
+      ) : <span className="layer-expand-spacer" aria-hidden="true" />}
       <span className="layer-color" style={{ background: cssColor(layer.color) }} aria-hidden="true" data-tip="Layer color" data-tip-desc="Drag to move this layer up or down in the stack." onPointerDown={(e: React.PointerEvent<HTMLSpanElement>) => onDragStart(e, layer.id)} />
       <span className="layer-name" onDoubleClick={() => setEditing(true)}>
         {editing ? (
@@ -106,7 +116,7 @@ function LayerRow({ layer, index, total, active, effVisible, onDragStart, dropHi
 export function Timeline() {
   const s = useApp((st) => ({
     project: st.project, frame: st.currentFrame, active: st.activeLayerId, range: st.frameRange, playing: st.playing, zoom: st.timelineZoom,
-    keySel: st.keySelection, clip: st.timelineClip, pasteArmed: st.pasteArmed,
+    keySel: st.keySelection, clip: st.timelineClip, pasteArmed: st.pasteArmed, expanded: st.expandedLayers, selection: st.selection,
   }));
   const [height, setHeight] = useState(240);
   const [scrollX, setScrollX] = useState(0);
@@ -127,6 +137,15 @@ export function Timeline() {
   const ppf = s.zoom;
   const rh = rowHeight();
   const displayLayers = [...p.layers].reverse(); // top layer first
+  // Timeline rows: each layer, followed by one row per animated object when the layer is expanded.
+  const expandedSet = new Set(s.expanded);
+  const rows: TrackRow[] = displayLayers.flatMap((layer): TrackRow[] => [
+    { kind: 'layer', layer },
+    ...(expandedSet.has(layer.id) ? objectTracks(layer).map((track): TrackRow => ({ kind: 'object', layer, track })) : []),
+  ]);
+  const toggleExpanded = (id: string) => store.set((st) => ({
+    expandedLayers: st.expandedLayers.includes(id) ? st.expandedLayers.filter((x) => x !== id) : [...st.expandedLayers, id],
+  }));
   const totalW = p.durationFrames * ppf + 120;
 
   // keep playhead visible
@@ -161,11 +180,11 @@ export function Timeline() {
   // ------- drawing
   useEffect(() => {
     const dpr = window.devicePixelRatio || 1;
-    const ruler = rulerRef.current, rows = rowsRef.current;
-    if (!ruler || !rows) return;
+    const ruler = rulerRef.current, rowsCanvas = rowsRef.current;
+    if (!ruler || !rowsCanvas) return;
     const W = width;
-    const H = Math.max(displayLayers.length * rh, rowsWrap.current?.clientHeight ?? 0);
-    for (const [c, h] of [[ruler, 26], [rows, H]] as const) {
+    const H = Math.max(rows.length * rh, rowsWrap.current?.clientHeight ?? 0);
+    for (const [c, h] of [[ruler, 26], [rowsCanvas, H]] as const) {
       c.width = Math.round(W * dpr); c.height = Math.round(h * dpr);
       c.style.width = `${W}px`; c.style.height = `${h}px`;
     }
@@ -204,7 +223,7 @@ export function Timeline() {
     if (ppf >= 18) { rc.fillStyle = '#fff'; rc.font = '600 10px ui-monospace, Menlo, monospace'; rc.fillText(String(s.frame + 1), px + 3, 13); }
 
     // rows
-    const c = rows.getContext('2d')!;
+    const c = rowsCanvas.getContext('2d')!;
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.fillStyle = '#20252d'; c.fillRect(0, 0, W, H);
     for (let f = first; f <= last; f++) {
@@ -213,8 +232,34 @@ export function Timeline() {
     }
     c.fillStyle = 'rgba(0,0,0,.25)'; c.fillRect(X(p.durationFrames), 0, W, H);
     const selected = new Set(s.keySel.map(keyId));
-    displayLayers.forEach((layer, i) => {
+    const selectedObjects = new Set(s.selection);
+    rows.forEach((row, i) => {
       const y = i * rh;
+      const layer = row.layer;
+      if (row.kind === 'object') {
+        // One object's motion tween: its drawing's extent, the tween bar and only its own keys.
+        const t = row.track;
+        c.fillStyle = selectedObjects.has(t.objectId) ? 'rgba(60,200,214,.10)' : 'rgba(0,0,0,.16)'; c.fillRect(0, y, W, rh);
+        c.fillStyle = '#2b313a'; c.fillRect(0, y + rh - 1, W, 1);
+        c.globalAlpha = isLayerEffectivelyVisible(p, layer) ? 1 : 0.4;
+        const sx0 = X(t.span.startFrame), sx1 = X(t.span.endFrame + 1), cy = y + rh / 2 - 0.5;
+        c.fillStyle = withAlphaCss(layer.color, 0.12); c.fillRect(sx0 + 1, y + 6, sx1 - sx0 - 2, rh - 13);
+        if (t.frames.length > 1) {
+          c.fillStyle = 'rgba(155,123,242,.55)';
+          c.fillRect(X(t.frames[0]) + ppf / 2, cy - 1.5, X(t.frames[t.frames.length - 1]) - X(t.frames[0]), 3);
+        }
+        for (const k of t.frames) {
+          if (k < first - 1 || k > last + 1) continue;
+          const kx = X(k) + ppf / 2;
+          const on = selected.has(keyId({ layerId: layer.id, frame: k, kind: 'tween', objectId: t.objectId }));
+          const r = on ? 5 : 4;
+          c.fillStyle = on ? '#3cc8d6' : '#f2a33a';
+          c.beginPath(); c.moveTo(kx, cy - r); c.lineTo(kx + r, cy); c.lineTo(kx, cy + r); c.lineTo(kx - r, cy); c.closePath(); c.fill();
+          if (on) { c.lineWidth = 1.5; c.strokeStyle = '#fff'; c.stroke(); c.lineWidth = 1; }
+        }
+        c.globalAlpha = 1;
+        return;
+      }
       const vis = isLayerEffectivelyVisible(p, layer);
       const isActive = layer.id === s.active;
       if (isActive) { c.fillStyle = 'rgba(60,200,214,.07)'; c.fillRect(0, y, W, rh); }
@@ -266,7 +311,7 @@ export function Timeline() {
     // range selection
     if (s.range) {
       for (const id of s.range.layerIds) {
-        const i = displayLayers.findIndex((l) => l.id === id);
+        const i = rows.findIndex((r) => r.kind === 'layer' && r.layer.id === id);
         if (i < 0) continue;
         c.fillStyle = 'rgba(60,200,214,.22)';
         c.fillRect(X(s.range.start), i * rh, (s.range.end - s.range.start + 1) * ppf, rh - 1);
@@ -277,7 +322,7 @@ export function Timeline() {
     // playhead line
     c.fillStyle = 'rgba(255,77,109,.9)';
     c.fillRect(px + ppf / 2 - 0.5, 0, 1.5, H);
-  }, [p, s.frame, s.active, s.range, s.keySel, ppf, scrollX, width, rh, height]);
+  }, [p, s.frame, s.active, s.range, s.keySel, s.expanded, s.selection, ppf, scrollX, width, rh, height]);
 
   // ------- interaction
   const frameAt = (clientX: number, el: HTMLElement) => {
@@ -286,7 +331,7 @@ export function Timeline() {
   };
   const rowAt = (clientY: number, el: HTMLElement) => {
     const r = el.getBoundingClientRect();
-    return Math.max(0, Math.min(displayLayers.length - 1, Math.floor((clientY - r.top) / rh)));
+    return Math.max(0, Math.min(rows.length - 1, Math.floor((clientY - r.top) / rh)));
   };
 
   const onRulerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -303,8 +348,10 @@ export function Timeline() {
   /** The keyframe under the pointer: a tween diamond (lower part of the cell) or a drawing key (span start). */
   const keyAt = (clientX: number, clientY: number, el: HTMLElement): KeyRef | null => {
     const f = frameAt(clientX, el), ri = rowAt(clientY, el);
-    const layer = displayLayers[ri];
-    if (!layer) return null;
+    const row = rows[ri];
+    if (!row) return null;
+    if (row.kind === 'object') return row.track.frames.includes(f) ? { layerId: row.layer.id, frame: f, kind: 'tween', objectId: row.track.objectId } : null;
+    const layer = row.layer;
     const yIn = clientY - el.getBoundingClientRect().top - ri * rh;
     const span = layer.exposureTrack.find((x) => f >= x.startFrame && f <= x.endFrame);
     if (!span) return null;
@@ -441,7 +488,7 @@ export function Timeline() {
   const onRowsContext = (e: React.MouseEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const el = e.currentTarget as HTMLCanvasElement;
-    const layer = displayLayers[rowAt(e.clientY, el)];
+    const layer = rows[rowAt(e.clientY, el)]?.layer;
     if (layer) openMenu(e.clientX, e.clientY, frameAt(e.clientX, el), layer.id, keyAt(e.clientX, e.clientY, el));
   };
 
@@ -450,10 +497,18 @@ export function Timeline() {
     el.focus();
     stop();
     const f = frameAt(e.clientX, el), ri = rowAt(e.clientY, el);
-    const layer = displayLayers[ri];
+    const row = rows[ri];
+    const layer = row?.layer;
     if (!layer || e.button !== 0) return; // right-click opens the menu (onContextMenu)
     if (getState().pasteArmed) { pasteAt(layer.id, f); return; }
     const hit = keyAt(e.clientX, e.clientY, el);
+    if (!hit && row.kind === 'object') {
+      // An object's motion row: select that object and move the playhead there.
+      lastKeyPress.current = null;
+      store.set({ selection: [row.track.objectId], activeLayerId: layer.id, keySelection: [], frameRange: null });
+      goToFrame(f);
+      return;
+    }
     if (hit) {
       // Double-click a keyframe: ease menu.
       // Double-click a keyframe for the ease menu (confirmed on release, so click-then-drag still drags).
@@ -471,7 +526,7 @@ export function Timeline() {
     const setRange = (f2: number, r2: number) => {
       const a = anchor.current!;
       const lo = Math.min(a.layerIndex, r2), hi = Math.max(a.layerIndex, r2);
-      const range = { layerIds: displayLayers.slice(lo, hi + 1).map((l) => l.id), start: Math.min(a.frame, f2), end: Math.max(a.frame, f2) };
+      const range = { layerIds: [...new Set(rows.slice(lo, hi + 1).map((r) => r.layer.id))], start: Math.min(a.frame, f2), end: Math.max(a.frame, f2) };
       // A frame range also selects the keyframes inside it, ready to drag.
       store.set({ frameRange: range, keySelection: keysInRange(getState().project, range.layerIds, range.start, range.end) });
     };
@@ -588,10 +643,14 @@ export function Timeline() {
         </div>
         <canvas ref={rulerRef} className="tl-ruler" onPointerDown={onRulerDown} aria-label="Frame ruler. Click or drag to move the playhead" role="slider" aria-valuemin={1} aria-valuemax={p.durationFrames} aria-valuenow={s.frame + 1} tabIndex={-1} />
         <div className="tl-layers" ref={layersRef} role="grid" aria-label="Layers" onScroll={(e: React.UIEvent<HTMLDivElement>) => { if (rowsWrap.current) rowsWrap.current.scrollTop = (e.currentTarget as HTMLDivElement).scrollTop; }}>
-          {displayLayers.map((l, i) => (
-            <LayerRow key={l.id} layer={l} index={i} total={displayLayers.length} active={l.id === s.active} effVisible={isLayerEffectivelyVisible(p, l)}
-              onDragStart={onLayerDrag} dropHint={drag && drag.over === l.id && drag.id !== l.id ? drag.pos : null} />
-          ))}
+          {rows.map((row) => (row.kind === 'layer' ? (
+            <LayerRow key={row.layer.id} layer={row.layer} index={displayLayers.indexOf(row.layer)} total={displayLayers.length} active={row.layer.id === s.active}
+              effVisible={isLayerEffectivelyVisible(p, row.layer)} onDragStart={onLayerDrag}
+              dropHint={drag && drag.over === row.layer.id && drag.id !== row.layer.id ? drag.pos : null}
+              tracks={objectTracks(row.layer).length} expanded={expandedSet.has(row.layer.id)} onToggle={() => toggleExpanded(row.layer.id)} />
+          ) : (
+            <TrackLabel key={`${row.layer.id}:${row.track.objectId}`} layer={row.layer} track={row.track} frame={s.frame} selected={s.selection.includes(row.track.objectId)} />
+          )))}
         </div>
         <div className="tl-rows" ref={rowsWrap} onScroll={(e: React.UIEvent<HTMLDivElement>) => { if (layersRef.current) layersRef.current.scrollTop = (e.currentTarget as HTMLDivElement).scrollTop; }}>
           <canvas ref={rowsRef} tabIndex={0} onPointerDown={onRowsDown} onPointerMove={onRowsHover} onKeyDown={onRowsKey} onContextMenu={onRowsContext}
@@ -763,5 +822,24 @@ function DurationField() {
         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setV(e.target.value.replace(/[^\d]/g, ''))}
         onBlur={apply} onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }} />
     </label>
+  );
+}
+
+type TrackRow = { kind: 'layer'; layer: Layer } | { kind: 'object'; layer: Layer; track: ObjectTrack };
+
+/** Label for an expanded layer's object row: thumbnail, name and key count; click selects the object. */
+function TrackLabel({ layer, track, frame, selected }: { layer: Layer; track: ObjectTrack; frame: number; selected: boolean }) {
+  const object = layer.objectTracks.find((c) => c.id === track.span.contentId)?.objects.find((o) => o.id === track.objectId);
+  const at = frame >= track.span.startFrame && frame <= track.span.endFrame ? frame : track.span.startFrame;
+  return (
+    <div className={`track-row${selected ? ' selected' : ''}`} role="row" aria-selected={selected} style={{ height: rowHeight() }}
+      aria-label={`Motion tween of ${track.name}, ${track.frames.length} keyframes, frames ${track.span.startFrame + 1} to ${track.span.endFrame + 1}`}
+      onClick={() => store.set({ selection: [track.objectId], activeLayerId: layer.id })}
+      data-tip={track.name}
+      data-tip-desc={`Motion tween of this object (frames ${track.span.startFrame + 1}\u2013${track.span.endFrame + 1}). Its keyframes on this row can be selected, moved, copied, deleted and eased on their own.`}>
+      {object && <ObjectThumb o={object} frame={at} />}
+      <span className="track-name">{track.name}</span>
+      <span className="track-keys">{track.frames.length}</span>
+    </div>
   );
 }

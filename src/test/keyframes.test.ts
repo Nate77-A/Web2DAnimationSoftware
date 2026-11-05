@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createProject } from '../domain/defaults';
-import { clampedMove, keysInRange, layerKeys, moveKeys, type KeyRef } from '../domain/keyframes';
+import { clampedMove, keysInRange, layerKeys, moveKeys, objectTracks, type KeyRef } from '../domain/keyframes';
+import { copyKeys, deleteKeys, keyEase, setKeyEase } from '../domain/timelineClipboard';
 import type { Keyframe, Project, SceneObject } from '../domain/schema';
 import { rect } from './fixtures';
 
@@ -93,5 +94,43 @@ describe('timeline keyframes', () => {
     const s = clampedMove(project(), [D(10)], 40);
     assert.equal(s.delta, 14); // up to frame 24, just before the drawing at 25
     assert.deepEqual(spans(s.project)[1], ['b', 24, 24]);
+  });
+});
+
+describe('per-object tween keys (expanded layer rows)', () => {
+  /** Drawing A (0-19) holds two animated objects keyed on the same frames. */
+  function twoTweens(): Project {
+    const p = project();
+    p.layers[0] = { ...p.layers[0], objectTracks: p.layers[0].objectTracks.map((c) => (c.id === 'a' ? { ...c, objects: [obj('ball', [0, 9]), obj('bird', [0, 9])] } : c)) };
+    return p;
+  }
+  const own = (objectId: string, frame: number): KeyRef => ({ layerId: 'L', frame, kind: 'tween', objectId });
+  const framesOf = (p: Project, id: string) => p.layers[0].objectTracks.find((c) => c.id === 'a')!.objects.find((o) => o.id === id)!.keyframes.map((k) => k.frame);
+
+  it('lists one track per animated object', () => {
+    const tracks = objectTracks(twoTweens().layers[0]);
+    assert.deepEqual(tracks.map((t) => [t.objectId, t.frames]), [['bird', [0, 9]], ['ball', [0, 9]]]);
+  });
+
+  it('moving one object’s key leaves the other object alone', () => {
+    const p = moveKeys(twoTweens(), [own('bird', 9)], -4)!;
+    assert.deepEqual(framesOf(p, 'bird'), [0, 5]);
+    assert.deepEqual(framesOf(p, 'ball'), [0, 9]);
+  });
+
+  it('the combined layer key still moves every object', () => {
+    const p = moveKeys(twoTweens(), [T(9)], -2)!;
+    assert.deepEqual([framesOf(p, 'bird'), framesOf(p, 'ball')], [[0, 7], [0, 7]]);
+  });
+
+  it('copy, delete and ease act on that object only', () => {
+    const del = deleteKeys(twoTweens(), [own('ball', 9)]);
+    assert.deepEqual([framesOf(del, 'ball'), framesOf(del, 'bird')], [[0], [0, 9]]);
+    const eased = setKeyEase(twoTweens(), own('bird', 0), 'easeIn');
+    assert.equal(keyEase(eased, own('bird', 0)), 'easeIn');
+    assert.equal(keyEase(eased, own('ball', 0)), 'linear');
+    assert.equal(keyEase(eased, T(0)), null); // the objects now disagree
+    const clip = copyKeys(twoTweens(), [own('ball', 9)]);
+    assert.ok(clip?.kind === 'tweenKeys' && clip.keys.length === 1 && clip.keys[0].objectId === 'ball');
   });
 });

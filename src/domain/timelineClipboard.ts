@@ -66,6 +66,7 @@ export function copyKeys(p: Project, keys: KeyRef[]): TimelineClip | null {
     const layer = p.layers.find((l) => l.id === k.layerId);
     const span = layer && spanAt(layer, k.frame);
     for (const o of (span && contentOf(layer, span)?.objects) ?? []) {
+      if (k.objectId && o.id !== k.objectId) continue;
       const key = o.keyframes.find((x) => x.frame === k.frame);
       if (key) out.push({ objectId: o.id, rel: k.frame - first, key: { ...key } });
     }
@@ -152,11 +153,16 @@ export function deleteKeys(p: Project, keys: KeyRef[]): Project {
       ...project,
       layers: project.layers.map((layer) => {
         if (layer.id !== layerId) return layer;
-        const tweenFrames = new Set(ks.filter((k) => k.kind === 'tween').map((k) => k.frame));
+        const tweenKeys = ks.filter((k) => k.kind === 'tween');
         let objectTracks = layer.objectTracks.map((c) => {
           const span = layer.exposureTrack.find((e) => e.contentId === c.id);
           if (!span) return c;
-          return { ...c, objects: c.objects.map((o) => [...tweenFrames].filter((f) => f >= span.startFrame && f <= span.endFrame).reduce(removeKeyframe, o)) };
+          return {
+            ...c,
+            objects: c.objects.map((o) => tweenKeys
+              .filter((k) => k.frame >= span.startFrame && k.frame <= span.endFrame && (!k.objectId || k.objectId === o.id))
+              .reduce((acc, k) => removeKeyframe(acc, k.frame), o)),
+          };
         });
         // Clear drawing keys right to left so neighbors merge correctly.
         let spans = [...layer.exposureTrack].sort(byStart);
@@ -183,7 +189,7 @@ function keyedObjects(p: Project, k: KeyRef): { layer: Layer; contentId: string;
   const span = layer && spanAt(layer, k.frame);
   const content = span && contentOf(layer, span);
   if (!layer || !content) return null;
-  return { layer, contentId: content.id, objects: content.objects.filter((o) => o.keyframes.some((x) => x.frame === k.frame)) };
+  return { layer, contentId: content.id, objects: content.objects.filter((o) => (!k.objectId || o.id === k.objectId) && o.keyframes.some((x) => x.frame === k.frame)) };
 }
 
 /** Ease of the key (null when its objects disagree), or undefined when nothing is keyed there. */

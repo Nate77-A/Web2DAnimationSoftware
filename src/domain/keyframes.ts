@@ -11,9 +11,29 @@
 //   - A key never passes a neighboring key or lands on another key; such a move is rejected (returns null).
 import type { Exposure, Layer, Project } from './schema';
 
-export interface KeyRef { layerId: string; frame: number; kind: 'drawing' | 'tween' }
+/**
+ * A key on the timeline. A tween key without `objectId` stands for every object keyed on that frame (the layer
+ * row's combined diamond); with `objectId` it is that one object's key (an expanded layer's object row).
+ */
+export interface KeyRef { layerId: string; frame: number; kind: 'drawing' | 'tween'; objectId?: string }
 
-export const keyId = (k: KeyRef) => `${k.layerId}:${k.kind}:${k.frame}`;
+export const keyId = (k: KeyRef) => `${k.layerId}:${k.kind}:${k.frame}${k.objectId ? `:${k.objectId}` : ''}`;
+
+/** One animated object's keys inside its drawing: a row of an expanded layer. */
+export interface ObjectTrack { layerId: string; objectId: string; name: string; span: Exposure; frames: number[] }
+
+/** Objects with tween keys on a layer, one track each, in time order then front-most first. */
+export function objectTracks(layer: Layer): ObjectTrack[] {
+  const out: ObjectTrack[] = [];
+  for (const span of [...layer.exposureTrack].sort(byStart)) {
+    const content = layer.objectTracks.find((c) => c.id === span.contentId);
+    for (const o of [...(content?.objects ?? [])].reverse()) {
+      const frames = o.keyframes.map((k) => k.frame).filter((f) => f >= span.startFrame && f <= span.endFrame).sort((a, b) => a - b);
+      if (frames.length) out.push({ layerId: layer.id, objectId: o.id, name: o.name, span, frames });
+    }
+  }
+  return out;
+}
 
 const byStart = (a: Exposure, b: Exposure) => a.startFrame - b.startFrame;
 
@@ -42,7 +62,10 @@ export function keysInRange(p: Project, layerIds: string[], start: number, end: 
 
 /** Keys from `keys` that still exist (e.g. after undo). */
 export function existingKeys(p: Project, keys: KeyRef[]): KeyRef[] {
-  const all = new Set(p.layers.flatMap(layerKeys).map(keyId));
+  const all = new Set(p.layers.flatMap((l) => [
+    ...layerKeys(l),
+    ...objectTracks(l).flatMap((t) => t.frames.map((frame): KeyRef => ({ layerId: l.id, frame, kind: 'tween', objectId: t.objectId }))),
+  ]).map(keyId));
   return keys.filter((k) => all.has(keyId(k)));
 }
 
@@ -65,7 +88,9 @@ export function moveKeys(p: Project, keys: KeyRef[], delta: number): Project | n
 function moveLayerKeys(layer: Layer, keys: KeyRef[], d: number): Layer | null {
   const spans = [...layer.exposureTrack].sort(byStart);
   const drawing = new Set(keys.filter((k) => k.kind === 'drawing').map((k) => k.frame));
-  const tween = new Set(keys.filter((k) => k.kind === 'tween').map((k) => k.frame));
+  const tween = new Set(keys.filter((k) => k.kind === 'tween' && !k.objectId).map((k) => k.frame));
+  const ownTween = new Map<string, Set<number>>(); // keys of single objects (expanded rows)
+  for (const k of keys) if (k.kind === 'tween' && k.objectId) ownTween.set(k.objectId, (ownTween.get(k.objectId) ?? new Set()).add(k.frame));
 
   // New span starts; order must be kept and frames stay non-negative.
   const starts = spans.map((s) => (drawing.has(s.startFrame) ? s.startFrame + d : s.startFrame));
@@ -89,16 +114,16 @@ function moveLayerKeys(layer: Layer, keys: KeyRef[], d: number): Layer | null {
     const { old, now } = sp;
     const ds = now.startFrame - old.startFrame, de = now.endFrame - old.endFrame;
     const rigid = ds !== 0 && ds === de;
-    const shift = (f: number) => {
+    const shift = (f: number, objectId: string) => {
       if (f < old.startFrame || f > old.endFrame) return 0; // keys outside the span are left alone
       if (rigid) return ds;
       if (ds && f === old.startFrame) return ds;
-      return tween.has(f) ? d : 0;
+      return tween.has(f) || ownTween.get(objectId)?.has(f) ? d : 0;
     };
     const objects = [];
     for (const o of c.objects) {
       if (!o.keyframes.length) { objects.push(o); continue; }
-      const keyframes = o.keyframes.map((k) => ({ ...k, frame: k.frame + shift(k.frame) }));
+      const keyframes = o.keyframes.map((k) => ({ ...k, frame: k.frame + shift(k.frame, o.id) }));
       const inside = o.keyframes.map((k, i) => [k, keyframes[i]] as const).filter(([k]) => k.frame >= old.startFrame && k.frame <= old.endFrame);
       if (inside.some(([, k]) => k.frame < now.startFrame || k.frame > now.endFrame)) return null; // a key would leave its drawing
       if (new Set(keyframes.map((k) => k.frame)).size !== keyframes.length) return null; // two keys on one frame

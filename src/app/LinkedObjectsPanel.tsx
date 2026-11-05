@@ -18,7 +18,7 @@ const kindOf = (o: SceneObject) => (o.kind === 'path' && o.brush ? 'Brush stroke
 const THUMB = 24;
 
 /** Small picture of one object as it appears on this frame (linked parents included), fitted to the box. */
-function ObjectThumb({ o, frame }: { o: SceneObject; frame: number }) {
+export function ObjectThumb({ o, frame }: { o: SceneObject; frame: number }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   const project = useApp((st) => st.project);
   const assetsVersion = useApp((st) => st.assetsVersion);

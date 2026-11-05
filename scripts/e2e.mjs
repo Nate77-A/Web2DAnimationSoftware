@@ -519,6 +519,36 @@ await shot('04-final');
   await pg.locator('.tl-menu [role="menuitemradio"]', { hasText: 'Ease out' }).click();
   const ease0 = (await st()).project.layers[0].objectTracks.find((c) => c.id === 'ka').objects[0].keyframes[0].ease;
   check('choosing an ease sets it on the keyframe', ease0 === 'easeOut' && (await label()) === 'Set ease', ease0);
+
+  // Expanded layer: one row per animated object, each edited on its own
+  await pg.evaluate(() => {
+    const s = window.__studio.get();
+    const l = s.project.layers[0];
+    const a = l.objectTracks.find((c) => c.id === 'ka');
+    const ball = a.objects[0];
+    const bird = { ...ball, id: 'bird', name: 'bird', keyframes: [0, 15].map((f) => ({ ...ball.keyframes[0], frame: f, ease: 'linear' })) };
+    const layer = { ...l, exposureTrack: [{ startFrame: 0, endFrame: 19, contentId: 'ka' }, { startFrame: 25, endFrame: 29, contentId: 'kc' }],
+      objectTracks: [{ ...a, objects: [{ ...ball, keyframes: ball.keyframes.map((k) => ({ ...k, ease: 'linear' })) }, bird] }, l.objectTracks.find((c) => c.id === 'kc')] };
+    window.__studio.set({ project: { ...s.project, layers: [layer] }, keySelection: [], toasts: [], selection: [] });
+  });
+  await pg.waitForTimeout(100);
+  const expandBtn = pg.locator('.layer-expand').first();
+  check('a layer with motion tweens can be expanded', (await expandBtn.count()) === 1 && (await pg.locator('.track-row').count()) === 0);
+  await expandBtn.click();
+  const trackNames = await pg.locator('.track-row .track-name').allInnerTexts();
+  check('expanding shows one row per animated object', trackNames.join(',') === 'bird,ball', trackNames.join(','));
+  const ROW = (r, f) => [rows.x + (f + 0.5) * ppf, rows.y + r * 28 + 14];
+  const framesOf = async (id) => (await st()).project.layers[0].objectTracks.find((c) => c.id === 'ka').objects.find((o) => o.id === id).keyframes.map((k) => k.frame).join(',');
+  await dragTo(ROW(1, 15), ROW(1, 12));
+  check('dragging a key on an object row moves only that object', (await framesOf('bird')) === '0,12' && (await framesOf('ball')) === '0,9'
+    && (await sel()) === 't12', `${await framesOf('bird')} / ${await framesOf('ball')}`);
+  await pg.mouse.dblclick(...ROW(2, 0));
+  await pg.locator('.tl-menu [role="menuitemradio"]', { hasText: 'Ease in' }).first().click();
+  const eases = (await st()).project.layers[0].objectTracks.find((c) => c.id === 'ka').objects.map((o) => `${o.id}:${o.keyframes[0].ease}`).join(' ');
+  check('easing a key on an object row changes only that object', eases === 'ball:easeIn bird:linear', eases);
+  await pg.screenshot({ path: `${SHOTS}/11-expanded-layer.png` });
+  await expandBtn.click();
+  check('collapsing hides the object rows again', (await pg.locator('.track-row').count()) === 0);
   await ctx3.close();
 }
 

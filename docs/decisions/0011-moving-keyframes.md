@@ -43,6 +43,15 @@ of them and drag them to retime the animation.
   (for a drawing key, the tween key on its first frame). The double-click is confirmed on release, so a quick
   click-then-drag still moves the key.
 
+## Per-object rows (addendum)
+- Layers with motion tweens can be expanded (`AppState.expandedLayers`) to show one row per animated object
+  (`objectTracks`: the object's keys inside its drawing, in time order then front-most first). Rows sit below
+  their layer row in both the layer list and the frames canvas, and every row-based calculation (hit testing,
+  ranges, drawing) uses this combined row list.
+- A tween key may carry `objectId`. Without it, the key is the layer row's combined diamond and acts on every object
+  keyed on that frame. With it, `moveKeys`, `copyKeys`, `deleteKeys`, `keyEase` and `setKeyEase` act on that
+  object only. Clicking an object row away from its keys selects the object.
+
 ## Consequences
 - Keys never overwrite each other, so a drag can't lose work. To swap two drawings, move one aside first.
 - Not yet supported: copying keys with a modifier-drag, moving keys between layers, nudging with arrow keys.

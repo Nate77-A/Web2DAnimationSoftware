@@ -101,6 +101,8 @@ export interface AppState {
   frameRange: FrameRange | null;
   /** Keyframes selected in the timeline (drawing and tween keys). */
   keySelection: KeyRef[];
+  /** Timeline layers expanded to show one row per animated object. */
+  expandedLayers: string[];
   /** Frames or keyframes copied from the timeline. */
   timelineClip: TimelineClip | null;
   /** After Copy, the next click on a timeline frame pastes there. */
@@ -153,6 +155,7 @@ export function initialState(project: Project = createProject()): AppState {
     activeLayerId: project.layers[project.layers.length - 1].id,
     frameRange: null,
     keySelection: [],
+    expandedLayers: [],
     timelineClip: null,
     pasteArmed: false,
     playing: false,
