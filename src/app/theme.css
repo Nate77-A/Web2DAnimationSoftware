@@ -487,3 +487,21 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 .track-row .lo-thumb { width: 20px !important; height: 20px !important; }
 .track-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .track-keys { flex: none; font-size: 10px; padding: 0 5px; border-radius: 8px; background: rgba(242,163,58,.18); color: #f2a33a; font-variant-numeric: tabular-nums; }
+
+/* Shape tool: corner mark for its flyout, and the flyout itself */
+.icon-btn.tool.has-flyout { position: relative; }
+.icon-btn.tool.has-flyout::after {
+  content: ''; position: absolute; right: 4px; bottom: 4px; width: 0; height: 0;
+  border-left: 5px solid transparent; border-bottom: 5px solid currentColor; opacity: .6;
+}
+.shape-flyout {
+  position: fixed; z-index: 75; min-width: 190px; padding: 5px; display: flex; flex-direction: column; gap: 1px;
+  background: var(--panel); border: 1px solid var(--outline); border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.shape-flyout [role="menuitemradio"] {
+  display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 4px 10px; border: 0; border-radius: var(--radius-sm);
+  background: none; color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.shape-flyout [role="menuitemradio"]:hover, .shape-flyout [role="menuitemradio"]:focus-visible { background: var(--raised); outline: none; }
+.shape-flyout [aria-checked="true"] { color: var(--accent-strong); }
+.shape-flyout .flyout-check { margin-left: auto; }

@@ -3,10 +3,14 @@ import { createProject, defaultBrush, defaultText } from '../domain/defaults';
 import { newId, nowIso } from '../domain/ids';
 import { locateObject } from '../domain/ops';
 import type { BrushSettings, Paint, Project, ShapeType, Style, TextData, Vec } from '../domain/schema';
+import type { EmojiKind } from '../domain/emoji';
 import type { KeyRef } from '../domain/keyframes';
 import type { Rect } from '../domain/math';
 import type { TimelineClip } from '../domain/timelineClipboard';
 import { createStore, useSelector } from './store';
+
+/** What the Shape tool draws: a shape type, or an emoji face (a group of shapes). */
+export type ShapeTool = ShapeType | EmojiKind;
 
 export type ToolId = 'select' | 'transform' | 'brush' | 'paint' | 'eraser' | 'shape' | 'pen' | 'text' | 'bucket' | 'eyedropper' | 'hand' | 'zoom';
 
@@ -48,7 +52,7 @@ export interface ToolOptions {
   /** Paint Brush: paints with the fill color; `merge` joins strokes with touching paint of the same color. */
   paint: BrushSettings & { opacity: number; merge: boolean };
   eraser: { size: number; mode: 'split' | 'delete'; allLayers: boolean };
-  shape: { type: ShapeType; sides: number; cornerRadius: number };
+  shape: { type: ShapeTool; sides: number; cornerRadius: number; star: { outer: number; inner: number; scale: number } };
   pen: { showHandles: boolean };
   text: TextData;
   eyedropper: { target: 'fill' | 'stroke'; allLayers: boolean };
@@ -132,7 +136,7 @@ export function initialState(project: Project = createProject()): AppState {
       brush: { ...defaultBrush(), opacity: 1 },
       paint: { ...defaultBrush(), size: 30, opacity: 1, merge: true },
       eraser: { size: 24, mode: 'split', allLayers: false },
-      shape: { type: 'rect', sides: 6, cornerRadius: 0 },
+      shape: { type: 'rect', sides: 6, cornerRadius: 0, star: { outer: 1, inner: 0.45, scale: 1 } },
       pen: { showHandles: true },
       text: defaultText(),
       eyedropper: { target: 'fill', allLayers: true },

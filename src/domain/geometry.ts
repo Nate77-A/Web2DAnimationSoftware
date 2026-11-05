@@ -44,8 +44,27 @@ export function shapeSegments(g: ShapeObject['geometry']): { segments: Segment[]
       }
       return { segments: pts, closed: true };
     }
+    case 'star': {
+      const n = Math.max(3, Math.round(g.sides));
+      const { outer, inner, scale } = g.star ?? DEFAULT_STAR;
+      const pts: Segment[] = [];
+      for (let i = 0; i < n * 2; i++) {
+        const a = -Math.PI / 2 + (i * Math.PI) / n;
+        const r = (i % 2 === 0 ? outer : inner) * scale;
+        pts.push(seg(w / 2 + (Math.cos(a) * r * w) / 2, h / 2 + (Math.sin(a) * r * h) / 2));
+      }
+      return { segments: pts, closed: true };
+    }
+    case 'null': // its box, used for selection and bounds only; nulls are never drawn in output
+      return { segments: [seg(0, 0), seg(w, 0), seg(w, h), seg(0, h)], closed: true };
   }
 }
+
+/** Default star: outer points at the box edge, inner points at 45%. */
+export const DEFAULT_STAR = { outer: 1, inner: 0.45, scale: 1 } as const;
+
+/** Null objects are editor-only helpers: selectable and animatable, never rendered or exported. */
+export const isNullObject = (o: SceneObject): boolean => o.kind === 'shape' && o.geometry.shape === 'null';
 
 export interface Subpath { segments: Segment[]; closed: boolean }
 

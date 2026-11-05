@@ -4,7 +4,7 @@ import { FONT_FAMILIES } from '../domain/defaults';
 import { exposureAt, sampleObject } from '../domain/evaluator';
 import { applyVector, rotate, unionRects, transformMatrix, transformRect } from '../domain/math';
 import { locateObject, mapObjects, setKeyframeEase, setObjectTransform } from '../domain/ops';
-import type { BlendMode, Ease, Paint, SceneObject, Style, TextData } from '../domain/schema';
+import type { BlendMode, Ease, Paint, SceneObject, ShapeType, Style, TextData } from '../domain/schema';
 import { cmdAddKeyframe, cmdCreateTween, cmdRemoveKeyframe, arrange, flipSelection, goToFrame } from '../editor/actions';
 import { cachedLocalBounds, clearMeasureCache } from '../editor/renderer';
 import { commit, commitMerge, getState, setToolOptions, store, useApp, activeTool } from '../editor/state';
@@ -17,6 +17,8 @@ import { setTool } from '../editor/tools';
 import { commands, formatKeys, FPS_HELP, setPref } from './commands';
 import { Check, Field, NumberField, PaintField, Seg } from './controls';
 import { CombineIcon, Icon } from './icons';
+import { SHAPE_CHOICES, StarFields, SWITCHABLE_SHAPES } from './shapeChoices';
+import { DEFAULT_STAR } from '../domain/geometry';
 import { DocSizePopover } from './StageHeader';
 
 const BLEND_MODES: BlendMode[] = ['normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion'];
@@ -220,16 +222,20 @@ function ToolSection() {
       return (
         <>
           <Section title="Shape" icon="shape">
-            <Seg label="Shape type" value={o.type} onChange={(type) => setToolOptions('shape', { type })} options={[
-              { value: 'rect', label: <Icon name="rect" size={16} />, title: 'Rectangle', tip: 'Draw rectangles, with optional rounded corners.' }, { value: 'ellipse', label: <Icon name="ellipse" size={16} />, title: 'Ellipse', tip: 'Draw ovals and circles.' },
-              { value: 'triangle', label: <Icon name="triangle" size={16} />, title: 'Triangle', tip: 'Draw triangles.' }, { value: 'polygon', label: <Icon name="polygon" size={16} />, title: 'Polygon', tip: 'Draw shapes with any number of equal sides.' },
-            ]} />
-            <div className="grid2">
-              {o.type === 'polygon' && <NumberField label="Sides" scrubLabel="Sides" value={o.sides} min={3} max={64} precision={0} onChange={(sides) => setToolOptions('shape', { sides })} />}
-              {o.type === 'rect' && <NumberField label="Corner radius" scrubLabel="R" value={o.cornerRadius} min={0} max={5000} precision={0} unit="px" onChange={(cornerRadius) => setToolOptions('shape', { cornerRadius })} />}
-            </div>
+            <Seg label="Shape type" value={o.type} onChange={(type) => setToolOptions('shape', { type })}
+              options={SHAPE_CHOICES.map((c) => ({ value: c.value, label: <Icon name={c.icon} size={16} />, title: c.title, tip: c.tip }))} />
+            {(o.type === 'polygon' || o.type === 'rect') && (
+              <div className="grid2">
+                {o.type === 'polygon' && <NumberField label="Sides" scrubLabel="Sides" value={o.sides} min={3} max={64} precision={0} onChange={(sides) => setToolOptions('shape', { sides })} />}
+                {o.type === 'rect' && <NumberField label="Corner radius" scrubLabel="R" value={o.cornerRadius} min={0} max={5000} precision={0} unit="px" onChange={(cornerRadius) => setToolOptions('shape', { cornerRadius })} />}
+              </div>
+            )}
+            {o.type === 'star' && <StarFields points={o.sides} star={o.star} onPoints={(sides) => setToolOptions('shape', { sides })} onStar={(patch) => setToolOptions('shape', { star: { ...o.star, ...patch } })} />}
+            {o.type === 'null' && <p className="hint">A null is never drawn or exported. It shows as a green box on stage so you can link other objects to it (Window › Linked Objects) and animate them together.</p>}
+            {(o.type === 'smiley' || o.type === 'glasses') && <p className="hint">Emoji are drawn in their own colors as a group of shapes. Shift draws a perfect circle.</p>}
+            <p className="hint">Press and hold the Shape tool for a pop-up of every shape.</p>
           </Section>
-          <StyleEditor title="New shape style" id="tool-style" style={swatchStyle} onChange={setStyle} closed />
+          {o.type !== 'null' && o.type !== 'smiley' && o.type !== 'glasses' && <StyleEditor title="New shape style" id="tool-style" style={swatchStyle} onChange={setStyle} closed />}
         </>
       );
     }
@@ -324,7 +330,7 @@ function SingleObject({ o, frame, layerId }: { o: SceneObject; frame: number; la
           <input className="input" aria-label="Object name" value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
             onBlur={() => name.trim() && name !== o.name && upd('Rename object', (x) => ({ ...x, name: name.trim().slice(0, 200) }))}
             onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }} />
-          <span className="badge accent">{KIND_LABEL[o.kind]}{o.kind === 'path' && o.brush ? ' · brush' : ''}</span>
+          <span className="badge accent">{o.kind === 'group' && o.metadata.emoji ? 'Emoji' : o.kind === 'shape' && o.geometry.shape === 'null' ? 'Null' : KIND_LABEL[o.kind]}{o.kind === 'path' && o.brush ? ' · brush' : ''}</span>
         </div>
         <div className="row">
           <Check label="Visible" checked={o.visible} onChange={(v) => upd('Toggle visibility', (x) => ({ ...x, visible: v }))} />
@@ -365,7 +371,7 @@ function SingleObject({ o, frame, layerId }: { o: SceneObject; frame: number; la
           <button className="btn sm" onClick={() => arrange('back')} aria-label="Send to back" data-tip-keys={formatKeys(['Mod+Shift+['])} data-tip-desc={commands['edit.back'].help}>Back</button>
         </div>
       </Section>
-      {(o.kind === 'path' || o.kind === 'shape') && (
+      {(o.kind === 'path' || (o.kind === 'shape' && o.geometry.shape !== 'null')) && (
         <StyleEditor style={o.style} closed={o.kind === 'shape' || o.geometry.closed} onChange={(patch) => upd('Edit style', (x) => ({ ...x, style: { ...x.style, ...patch } }))}
           title={o.kind === 'path' && o.brush ? 'Brush stroke color (fill)' : 'Appearance'} />
       )}
@@ -396,15 +402,24 @@ function SingleObject({ o, frame, layerId }: { o: SceneObject; frame: number; la
         )}
       </Section>
       {o.kind === 'shape' && (
-        <Section title="Shape" id="object-shape">
-          <Seg label="Shape type" value={o.geometry.shape} onChange={(shape) => upd('Change shape', (x) => (x.kind === 'shape' ? { ...x, geometry: { ...x.geometry, shape } } : x))} options={[
-            { value: 'rect', label: <Icon name="rect" size={16} />, title: 'Rectangle', tip: 'Draw rectangles, with optional rounded corners.' }, { value: 'ellipse', label: <Icon name="ellipse" size={16} />, title: 'Ellipse', tip: 'Draw ovals and circles.' },
-            { value: 'triangle', label: <Icon name="triangle" size={16} />, title: 'Triangle', tip: 'Draw triangles.' }, { value: 'polygon', label: <Icon name="polygon" size={16} />, title: 'Polygon', tip: 'Draw shapes with any number of equal sides.' },
-          ]} />
-          <div className="grid2">
-            {o.geometry.shape === 'polygon' && <NumberField label="Sides" scrubLabel="Sides" value={o.geometry.sides} min={3} max={64} precision={0} onChange={(sides) => upd('Polygon sides', (x) => (x.kind === 'shape' ? { ...x, geometry: { ...x.geometry, sides } } : x))} />}
-            {o.geometry.shape === 'rect' && <NumberField label="Corner radius" scrubLabel="R" value={o.geometry.cornerRadius} min={0} precision={0} unit="px" onChange={(cornerRadius) => upd('Corner radius', (x) => (x.kind === 'shape' ? { ...x, geometry: { ...x.geometry, cornerRadius } } : x))} />}
-          </div>
+        <Section title={o.geometry.shape === 'null' ? 'Null object' : 'Shape'} id="object-shape">
+          {o.geometry.shape === 'null' ? (
+            <p className="hint">Never drawn or exported. Link objects to this null (Window › Linked Objects) and animate it to move them together; resize it with the transform handles.</p>
+          ) : (
+            <>
+              <Seg label="Shape type" value={o.geometry.shape} onChange={(shape) => upd('Change shape', (x) => (x.kind === 'shape' ? { ...x, geometry: { ...x.geometry, shape, ...(shape === 'star' && !x.geometry.star ? { star: { ...DEFAULT_STAR } } : {}) } } : x))}
+                options={SWITCHABLE_SHAPES.map((c) => ({ value: c.value as ShapeType, label: <Icon name={c.icon} size={16} />, title: c.title, tip: c.tip }))} />
+              <div className="grid2">
+                {o.geometry.shape === 'polygon' && <NumberField label="Sides" scrubLabel="Sides" value={o.geometry.sides} min={3} max={64} precision={0} onChange={(sides) => upd('Polygon sides', (x) => (x.kind === 'shape' ? { ...x, geometry: { ...x.geometry, sides } } : x))} />}
+                {o.geometry.shape === 'rect' && <NumberField label="Corner radius" scrubLabel="R" value={o.geometry.cornerRadius} min={0} precision={0} unit="px" onChange={(cornerRadius) => upd('Corner radius', (x) => (x.kind === 'shape' ? { ...x, geometry: { ...x.geometry, cornerRadius } } : x))} />}
+              </div>
+              {o.geometry.shape === 'star' && (
+                <StarFields points={o.geometry.sides} star={o.geometry.star ?? DEFAULT_STAR}
+                  onPoints={(sides) => upd('Star points', (x) => (x.kind === 'shape' ? { ...x, geometry: { ...x.geometry, sides } } : x))}
+                  onStar={(patch) => upd('Star shape', (x) => (x.kind === 'shape' ? { ...x, geometry: { ...x.geometry, star: { ...(x.geometry.star ?? DEFAULT_STAR), ...patch } } } : x))} />
+              )}
+            </>
+          )}
         </Section>
       )}
       {o.kind === 'text' && (

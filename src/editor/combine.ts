@@ -42,7 +42,8 @@ export function combineTargets(s: AppState = getState()): { ok: true; items: Eva
   for (const { source: o } of items) {
     if (o.kind === 'text') return { ok: false, reason: 'Text can’t be combined. Deselect it to combine the other shapes.' };
     if (o.kind === 'bitmap') return { ok: false, reason: 'Images can’t be combined. Deselect them to combine the other shapes.' };
-    if (o.kind === 'group') return { ok: false, reason: 'Groups can’t be combined.' };
+    if (o.kind === 'group') return { ok: false, reason: 'Groups (including emoji) can’t be combined.' };
+    if (o.kind === 'shape' && o.geometry.shape === 'null') return { ok: false, reason: 'Null objects are never drawn, so they can’t be combined. Deselect them to combine the other shapes.' };
     if (o.kind === 'path' && !o.geometry.closed) return { ok: false, reason: `“${o.name}” is an open path. Close it first (Pen: click its first point).` };
     if (o.locked) return { ok: false, reason: `“${o.name}” is locked.` };
   }

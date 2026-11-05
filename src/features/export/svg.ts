@@ -1,7 +1,7 @@
 // Animated SVG exporter with an up-front capability analyzer (see docs/decisions/0007-animated-svg.md).
 import { parseHex } from '../../domain/color';
 import { contentAt, isLayerEffectivelyVisible, sampleObject } from '../../domain/evaluator';
-import { layoutText, quoteFamily, objectSegments, objectSubpaths, subpathsToPathData } from '../../domain/geometry';
+import { isNullObject, layoutText, quoteFamily, objectSegments, objectSubpaths, subpathsToPathData } from '../../domain/geometry';
 import { worldMatrix } from '../../domain/links';
 import { transformMatrix, type Matrix } from '../../domain/math';
 import type { Asset, Content, Exposure, Layer, Paint, Project, SceneObject } from '../../domain/schema';
@@ -68,6 +68,7 @@ export function analyzeSvg(p: Project, r: FrameRangeSpec): SvgAnalysis {
     for (const e of spans) {
       const c = l.objectTracks.find((x) => x.id === e.contentId);
       for (const o of c?.objects ?? []) {
+        if (isNullObject(o)) continue;
         if (animatedInRange(p, o, r)) animated = true;
         if (o.kind === 'bitmap') usedAssets.add(o.assetRef);
         if (o.kind === 'text') hasText = true;
@@ -111,6 +112,7 @@ class Defs {
 }
 
 function objectMarkup(o: SceneObject, defs: Defs, idPrefix: string): string {
+  if (isNullObject(o)) return '';
   const b = cachedLocalBounds(o);
   const st = o.style;
   const paintAttrs = (forText = false) => {
@@ -205,7 +207,7 @@ export async function exportSvg(p: Project, s: SvgSettings, onProgress: Progress
       const gid = `c-${pl.content.id}`.replace(/[^a-zA-Z0-9_-]/g, '');
       const objs: string[] = [];
       for (const o of pl.content.objects) {
-        if (!o.visible) continue;
+        if (!o.visible || isNullObject(o)) continue; // nulls are editor-only helpers
         const oid = `o-${o.id}`.replace(/[^a-zA-Z0-9_-]/g, '');
         const f0 = Math.max(r.start, pl.span.startFrame);
         const first = sampleObject(o, f0);
@@ -256,6 +258,7 @@ export async function exportSvg(p: Project, s: SvgSettings, onProgress: Progress
     for (const l of visibleLayers(p)) for (const sp of spansInRange(l, r)) {
       const c = l.objectTracks.find((x) => x.id === sp.contentId);
       for (const o of c?.objects ?? []) {
+        if (isNullObject(o)) continue;
         for (let f = Math.max(r.start, sp.startFrame); f <= Math.min(r.end, sp.endFrame); f += Math.max(1, Math.floor(frames / 24))) {
           const t = worldMatrix(p, o, f);
           const lb = cachedLocalBounds(o);

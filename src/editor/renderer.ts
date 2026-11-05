@@ -124,6 +124,8 @@ export interface RenderOptions {
   alpha?: number;
   /** Tints vector content for onion skinning. */
   tint?: string;
+  /** Draw editor-only helpers such as null objects (stage and panel thumbnails; never exports). */
+  guides?: boolean;
 }
 
 export function renderScene(ctx: Ctx, scene: EvaluatedScene, opts: RenderOptions) {
@@ -165,7 +167,32 @@ export function drawObject(ctx: Ctx, eo: EvalObject, opts: RenderOptions) {
   ctx.restore();
 }
 
+const NULL_GREEN = '#39FF5A';
+
+/** After Effects-style null: a bright green box with crosshairs, kept about 1.5 screen pixels thick. */
+function drawNull(ctx: Ctx, w: number, h: number) {
+  const t = ctx.getTransform();
+  const px = 1 / (Math.sqrt(Math.abs(t.a * t.d - t.b * t.c)) || 1); // one device pixel in local units
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  ctx.save();
+  ctx.globalAlpha = Math.max(ctx.globalAlpha, 0.9);
+  ctx.strokeStyle = NULL_GREEN;
+  ctx.lineWidth = 1.5 * dpr * px;
+  ctx.setLineDash([]);
+  ctx.strokeRect(0, 0, w, h);
+  const cx = w / 2, cy = h / 2, arm = Math.min(w, h) * 0.22;
+  ctx.beginPath();
+  ctx.moveTo(cx - arm, cy); ctx.lineTo(cx + arm, cy);
+  ctx.moveTo(cx, cy - arm); ctx.lineTo(cx, cy + arm);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawSource(ctx: Ctx, o: SceneObject, opts: RenderOptions) {
+  if (o.kind === 'shape' && o.geometry.shape === 'null') {
+    if (opts.guides && !opts.tint) drawNull(ctx, o.geometry.width, o.geometry.height);
+    return;
+  }
   const b = cachedLocalBounds(o);
   switch (o.kind) {
     case 'path':

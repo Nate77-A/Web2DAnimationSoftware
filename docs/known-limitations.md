@@ -15,3 +15,5 @@
   (with a main-thread fallback if workers are blocked).
 - Out of scope: audio, nested symbols, bone/IK rigs, FLA import, plugins, advanced masks, 3D, scripting, filters, camera, collaboration, cloud sync, phone layout.
 - Parent links: a child follows its parent only on frames where that parent object is on stage (each drawing keyframe has its own objects). Children don't inherit the parent's opacity. With a parent that is both rotated and scaled unevenly, edits to the child are approximated (no skew in the transform model). Links are made by dragging in the Linked Objects window; there is no keyboard equivalent yet.
+- Emoji faces are groups with fixed colors; their parts can't be edited individually yet (no ungroup).
+- Null objects are not shown in onion skinning or exports by design.

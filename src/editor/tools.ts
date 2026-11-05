@@ -12,13 +12,14 @@ import { addObjects, locateObject, mapObjects, removeObjects, replaceObject, set
 import { evaluateLayer, isLayerEffectivelyVisible, sampleObject } from '../domain/evaluator';
 import type { Paint, PathObject, Project, SceneObject, Segment, ShapeObject, Style, TextObject, Transform, Vec } from '../domain/schema';
 import { getAssetImage } from '../features/assets';
+import { emojiObject } from '../domain/emoji';
 import { eraserSweep, erasePaint, isPaint, mergePaint, PAINT_TAG } from './combine';
 import { editablePath } from './pathEdit';
 import { enterPathEdit, exitPathEdit, pathEditCancel, pathEditDown, pathEditHover, pathEditKey, pathEditMove, pathEditUp } from './pathEditTool';
 import { renderScene, cachedLocalBounds } from './renderer';
 import { frameObjects, hitObject, hitTest, objectsInRect, selectionInfo, screenToDoc, zoomAt, type SelectionInfo } from './scene';
 import {
-  beginGesture, cancelGesture, commit, endGesture, getState, pushRecentColor, setOverlay, store, toast, updateGesture, type ToolId,
+  beginGesture, cancelGesture, commit, endGesture, getState, pushRecentColor, setOverlay, store, toast, updateGesture, type ShapeTool, type ToolId,
 } from './state';
 
 export interface PointerInfo {
@@ -496,6 +497,11 @@ function createEraserTool(): Tool {
 
 // ------------------------------------------------------------------ shape
 
+export const SHAPE_LABELS: Record<ShapeTool, string> = {
+  rect: 'Rectangle', ellipse: 'Ellipse', triangle: 'Triangle', polygon: 'Polygon', star: 'Star', null: 'Null', smiley: 'Happy face', glasses: 'Sunglasses face',
+};
+const NO_STYLE: Style = { fill: { type: 'none' }, stroke: { type: 'none' }, strokeWidth: 0, cap: 'round', join: 'round', dash: [], fillRule: 'nonzero' };
+
 function createShapeTool(): Tool {
   let start: Vec = [0, 0];
   let active = false;
@@ -518,12 +524,18 @@ function createShapeTool(): Tool {
       const W = Math.abs(w), H = Math.abs(h);
       if (W * s.viewport.zoom < 2 && H * s.viewport.zoom < 2) return;
       const opts = s.toolOptions.shape;
-      const label = { rect: 'Rectangle', ellipse: 'Ellipse', triangle: 'Triangle', polygon: 'Polygon' }[opts.type];
-      const obj: ShapeObject = {
-        ...baseObject(label, styleFromSwatches()), id, kind: 'shape',
-        geometry: { shape: opts.type, width: W, height: H, sides: opts.sides, cornerRadius: opts.cornerRadius },
-        transform: identityTransform(cx, cy, W / 2, H / 2),
-      };
+      const type = opts.type;
+      let obj: SceneObject;
+      if (type === 'smiley' || type === 'glasses') {
+        obj = { ...emojiObject(type, cx - W / 2, cy - H / 2, W, H), id };
+      } else {
+        const shape: ShapeObject = {
+          ...baseObject(SHAPE_LABELS[type], type === 'null' ? NO_STYLE : styleFromSwatches()), id, kind: 'shape',
+          geometry: { shape: type, width: W, height: H, sides: opts.sides, cornerRadius: opts.cornerRadius, ...(type === 'star' ? { star: { ...opts.star } } : {}) },
+          transform: identityTransform(cx, cy, W / 2, H / 2),
+        };
+        obj = shape;
+      }
       const layerId = s.activeLayerId, frame = s.currentFrame;
       updateGesture((base) => addObjects(base, layerId, frame, [obj]));
     },
@@ -642,6 +654,7 @@ function createBucketTool(): Tool {
       const hit = hitTest(s, e.doc, 2);
       if (!hit) { toast('Paint Bucket fills a closed vector shape. Click inside one.', 'info'); return; }
       const o = hit.source;
+      if (o.kind === 'shape' && o.geometry.shape === 'null') { toast('Null objects are never drawn, so they can’t be filled.', 'info'); return; }
       const closed = o.kind === 'shape' || (o.kind === 'path' && o.geometry.closed) || o.kind === 'text';
       if (!closed) {
         toast(o.kind === 'bitmap' ? 'Bitmap pixel fill is not available in this version.' : 'This path is open. Close it (Pen: click the first point) to fill it.', 'warning');

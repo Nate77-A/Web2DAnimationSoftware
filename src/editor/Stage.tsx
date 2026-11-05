@@ -74,7 +74,7 @@ function drawStage(canvas: HTMLCanvasElement) {
     }
   }
   const skip = s.editingTextId ? new Set([s.editingTextId]) : undefined;
-  renderScene(ctx, evaluateFrame(p, s.currentFrame, { skipObjectIds: skip }), { matrix: m, getImage: getAssetImage, drawBackground: false, placeholders: true });
+  renderScene(ctx, evaluateFrame(p, s.currentFrame, { skipObjectIds: skip }), { matrix: m, getImage: getAssetImage, drawBackground: false, placeholders: true, guides: true });
 
   // guides and debug markers are view decorations, never part of document output
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

@@ -697,6 +697,64 @@ await shot('04-final');
   await ctx5.close();
 }
 
+// More shapes: hold-for-shapes pop-up, star, null, emoji (fresh context)
+{
+  const ctx6 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const pg = await ctx6.newPage();
+  pg.on('console', (m) => { if (m.type() === 'error') errors.push('shapes: ' + m.text()); });
+  pg.on('pageerror', (e) => errors.push('shapes pageerror: ' + e.message));
+  await pg.goto('http://localhost:4173/');
+  await pg.waitForSelector('.stage canvas');
+  await pg.waitForTimeout(400);
+  const st = () => pg.evaluate(() => window.__studio.get());
+  const objs = async () => (await st()).project.layers.flatMap((l) => l.objectTracks.flatMap((c) => c.objects));
+  const box = await pg.locator('.stage').boundingBox();
+  const P = async (x, y) => { const v = (await st()).viewport; return [box.x + v.panX + x * v.zoom, box.y + v.panY + y * v.zoom]; };
+  const drag = async (from, to) => { await pg.mouse.move(...from); await pg.mouse.down(); await pg.mouse.move(...to, { steps: 6 }); await pg.mouse.up(); };
+  const shapeBtn = pg.locator('button.tool.has-flyout');
+  const pick = async (name) => {
+    const b = await shapeBtn.boundingBox();
+    await pg.mouse.move(b.x + b.width / 2, b.y + b.height / 2); await pg.mouse.down(); await pg.waitForTimeout(650); await pg.mouse.up();
+    await pg.locator('.shape-flyout [role="menuitemradio"]', { hasText: name }).click();
+  };
+  const b0 = await shapeBtn.boundingBox();
+  await pg.mouse.move(b0.x + b0.width / 2, b0.y + b0.height / 2); await pg.mouse.down(); await pg.waitForTimeout(650); await pg.mouse.up();
+  const items = await pg.locator('.shape-flyout [role="menuitemradio"]').allInnerTexts();
+  check('holding the Shape tool pops up every shape', items.join(',') === 'Rectangle,Ellipse,Triangle,Polygon,Star,Null,Happy face,Sunglasses face', items.join(','));
+  await pg.screenshot({ path: `${SHOTS}/12-shape-flyout.png` });
+  await pg.keyboard.press('Escape');
+
+  await pick('Star');
+  await drag(await P(200, 200), await P(500, 500));
+  const star = (await objs()).at(-1);
+  check('picking Star draws a star with the tool’s settings', (await st()).tool === 'shape' && star.geometry.shape === 'star' && star.geometry.star?.inner === 0.45);
+
+  await pick('Null');
+  await drag(await P(700, 200), await P(900, 400));
+  const nul = (await objs()).at(-1);
+  await pg.evaluate(() => window.__studio.set({ selection: [] }));
+  await pg.waitForTimeout(150);
+  const [ex, ey] = await P(700, 300);
+  const px = await pg.evaluate(([x, y]) => {
+    const c = document.querySelector('.stage canvas');
+    const r = c.getBoundingClientRect(), k = c.width / r.width;
+    const d = c.getContext('2d').getImageData(Math.round((x - r.left) * k), Math.round((y - r.top) * k), 1, 1).data;
+    return [d[0], d[1], d[2]];
+  }, [ex, ey]);
+  check('a null shows as a green box on stage', nul.geometry.shape === 'null' && nul.style.fill.type === 'none' && px[1] > 180 && px[0] < 140, px.join(','));
+
+  await pick('Happy face');
+  await drag(await P(1000, 200), await P(1250, 450));
+  await pick('Sunglasses face');
+  await drag(await P(1300, 200), await P(1550, 450));
+  const faces = (await objs()).slice(-2);
+  check('Happy face and Sunglasses face draw emoji groups', faces.map((o) => `${o.kind}:${o.metadata.emoji}`).join(' ') === 'group:smiley group:glasses');
+  check('the Shape tool shows the current shape’s icon', (await shapeBtn.locator('path').getAttribute('d')).startsWith('M12 3a9 9 0 110 18'));
+  await pg.mouse.move(700, 880);
+  await pg.screenshot({ path: `${SHOTS}/13-new-shapes.png` });
+  await ctx6.close();
+}
+
 check('no console errors', errors.length === 0, errors.join(' | '));
 await browser.close();
 server.close();

@@ -74,7 +74,11 @@ export const textDataSchema = z.object({
   width: finite.min(0).max(100000),
 });
 
-export const shapeTypeSchema = z.enum(['rect', 'ellipse', 'triangle', 'polygon']);
+/** `null` is an editor-only helper (never rendered or exported), like an After Effects null object. */
+export const shapeTypeSchema = z.enum(['rect', 'ellipse', 'triangle', 'polygon', 'star', 'null']);
+
+/** Star radii as fractions of the half-width/height: outer points, inner points, and a multiplier for both. */
+export const starSchema = z.object({ outer: finite.min(0).max(10), inner: finite.min(0).max(10), scale: finite.min(0).max(10) });
 
 const objectBase = {
   id: z.string().min(1),
@@ -110,7 +114,7 @@ export const shapeObjectSchema = z.object({
   ...objectBase,
   kind: z.literal('shape'),
   geometry: z.object({
-    shape: shapeTypeSchema, width: finite.min(0), height: finite.min(0), sides: int.min(3).max(64), cornerRadius: finite.min(0),
+    shape: shapeTypeSchema, width: finite.min(0), height: finite.min(0), sides: int.min(3).max(64), cornerRadius: finite.min(0), star: starSchema.optional(),
   }),
 });
 export const textObjectSchema = z.object({ ...objectBase, kind: z.literal('text'), text: textDataSchema });

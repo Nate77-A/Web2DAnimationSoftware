@@ -14,7 +14,8 @@ import { Icon } from './icons';
 interface Node { o: SceneObject; layer: Layer; children: Node[] }
 
 const KIND_LABEL: Record<SceneObject['kind'], string> = { path: 'Path', shape: 'Shape', text: 'Text', bitmap: 'Image', group: 'Group' };
-const kindOf = (o: SceneObject) => (o.kind === 'path' && o.brush ? 'Brush stroke' : o.kind === 'path' && o.metadata.paintBrush ? 'Paint' : KIND_LABEL[o.kind]);
+const kindOf = (o: SceneObject) => (o.kind === 'path' && o.brush ? 'Brush stroke' : o.kind === 'path' && o.metadata.paintBrush ? 'Paint'
+  : o.kind === 'shape' && o.geometry.shape === 'null' ? 'Null object (never exported)' : o.kind === 'group' && o.metadata.emoji ? 'Emoji' : KIND_LABEL[o.kind]);
 const THUMB = 24;
 
 /** Small picture of one object as it appears on this frame (linked parents included), fitted to the box. */
@@ -40,7 +41,7 @@ export function ObjectThumb({ o, frame }: { o: SceneObject; frame: number }) {
     // Faint or hidden objects are drawn at least partly visible so the thumbnail still identifies them.
     const { transform, opacity } = sampleObject(o, frame);
     drawObject(ctx, { source: o, layerId: '', transform, opacity: Math.max(0.35, o.visible ? opacity : 0.35), matrix },
-      { matrix: IDENTITY, getImage: getAssetImage, drawBackground: false, placeholders: true });
+      { matrix: IDENTITY, getImage: getAssetImage, drawBackground: false, placeholders: true, guides: true });
   }, [o, key, frame, assetsVersion]); // `matrix` is captured by value through `key`
   return <canvas ref={ref} className="lo-thumb" style={{ width: THUMB, height: THUMB }} aria-hidden="true" />;
 }

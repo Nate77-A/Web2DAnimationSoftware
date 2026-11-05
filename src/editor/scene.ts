@@ -60,7 +60,8 @@ export function hitObject(eo: EvalObject, p: Vec, tol: number): boolean {
   const b = cachedLocalBounds(o);
   const pad = ltol + (o.style.stroke.type !== 'none' ? o.style.strokeWidth : 0);
   if (lp[0] < b.x - pad || lp[0] > b.x + b.width + pad || lp[1] < b.y - pad || lp[1] > b.y + b.height + pad) return false;
-  if (o.kind === 'text' || o.kind === 'bitmap' || o.kind === 'group') {
+  // Boxes without a fill to hit: text, images, groups and null objects are picked anywhere inside their bounds.
+  if (o.kind === 'text' || o.kind === 'bitmap' || o.kind === 'group' || (o.kind === 'shape' && o.geometry.shape === 'null')) {
     return lp[0] >= b.x - ltol && lp[0] <= b.x + b.width + ltol && lp[1] >= b.y - ltol && lp[1] <= b.y + b.height + ltol;
   }
   const closed = o.kind === 'shape' || o.geometry.closed;
