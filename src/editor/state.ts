@@ -3,7 +3,9 @@ import { createProject, defaultBrush, defaultText } from '../domain/defaults';
 import { newId, nowIso } from '../domain/ids';
 import { locateObject } from '../domain/ops';
 import type { BrushSettings, Paint, Project, ShapeType, Style, TextData, Vec } from '../domain/schema';
+import type { KeyRef } from '../domain/keyframes';
 import type { Rect } from '../domain/math';
+import type { TimelineClip } from '../domain/timelineClipboard';
 import { createStore, useSelector } from './store';
 
 export type ToolId = 'select' | 'transform' | 'brush' | 'eraser' | 'shape' | 'pen' | 'text' | 'bucket' | 'eyedropper' | 'hand' | 'zoom';
@@ -95,6 +97,12 @@ export interface AppState {
   currentFrame: number;
   activeLayerId: string;
   frameRange: FrameRange | null;
+  /** Keyframes selected in the timeline (drawing and tween keys). */
+  keySelection: KeyRef[];
+  /** Frames or keyframes copied from the timeline. */
+  timelineClip: TimelineClip | null;
+  /** After Copy, the next click on a timeline frame pastes there. */
+  pasteArmed: boolean;
   playing: boolean;
   timelineZoom: number;
   assetsVersion: number;
@@ -141,6 +149,9 @@ export function initialState(project: Project = createProject()): AppState {
     currentFrame: 0,
     activeLayerId: project.layers[project.layers.length - 1].id,
     frameRange: null,
+    keySelection: [],
+    timelineClip: null,
+    pasteArmed: false,
     playing: false,
     timelineZoom: 16,
     assetsVersion: 0,
@@ -294,6 +305,8 @@ export function loadProjectIntoEditor(project: Project, opts: { fileDirty?: bool
     pathEdit: null,
     currentFrame: 0,
     frameRange: null,
+    keySelection: [],
+    pasteArmed: false,
     playing: false,
     activeLayerId: project.layers[project.layers.length - 1].id,
     fileDirty: opts.fileDirty ?? false,

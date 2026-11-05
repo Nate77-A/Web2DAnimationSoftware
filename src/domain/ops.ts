@@ -38,7 +38,7 @@ export function cloneObject(o: SceneObject): SceneObject {
   return c;
 }
 
-function cloneContent(c: Content | undefined): Content {
+export function cloneContent(c: Content | undefined): Content {
   return { id: newId('content'), objects: c ? c.objects.map(cloneObject) : [] };
 }
 
@@ -53,7 +53,7 @@ function shiftKeyframes(c: Content, delta: number): Content {
 }
 
 /** Shifts every span starting at or after `from` by delta, moving their keyframes with them. */
-function shiftSpans(layer: Layer, from: number, delta: number): Layer {
+export function shiftSpans(layer: Layer, from: number, delta: number): Layer {
   const moved = new Set<string>();
   const exposureTrack = layer.exposureTrack.map((e) => {
     if (e.startFrame < from) return e;

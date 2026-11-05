@@ -215,10 +215,11 @@ export function installKeyboard() {
     }
     // Active tool gets first refusal (pen: Enter/Esc/Backspace).
     if (tools[s.transientTool ?? s.tool].key?.(e)) { e.preventDefault(); return; }
+    if (e.key === 'Escape' && s.pasteArmed) { store.set({ pasteArmed: false }); return; }
     if (e.key === 'Escape') {
       const t = TOOL_LIST.find((x) => x.id === s.tool);
       if (t?.transient) setTool('select');
-      else if (s.frameRange) store.set({ frameRange: null });
+      else if (s.frameRange || s.keySelection.length) store.set({ frameRange: null, keySelection: [] });
       else deselect();
       return;
     }

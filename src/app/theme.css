@@ -406,3 +406,24 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 
 /* narrow screens (iPad portrait) */
 @media (max-width: 1024px) { :root { --props-w: 260px; } .tl-body { grid-template-columns: 200px minmax(0, 1fr); } }
+
+/* timeline hold menu, ease menu and paste banner */
+.tl-menu {
+  position: fixed; z-index: 75; min-width: 200px; max-width: 280px; padding: 5px; display: flex; flex-direction: column; gap: 1px;
+  background: var(--panel); border: 1px solid var(--outline); border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.tl-menu [role^="menuitem"] {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 30px; padding: 4px 10px 4px 8px; border: 0; border-radius: var(--radius-sm);
+  background: none; color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.tl-menu [role^="menuitem"]:hover, .tl-menu [role^="menuitem"]:focus-visible { background: var(--raised); outline: none; }
+.tl-menu [role^="menuitem"].danger { color: var(--danger); }
+.tl-menu [role^="menuitem"] .check { width: 16px; display: inline-flex; color: var(--accent); }
+.tl-menu hr { border: 0; border-top: 1px solid var(--outline); margin: 4px 2px; }
+.tl-menu-title { padding: 4px 10px 6px; font-size: 11px; font-weight: 650; letter-spacing: .6px; text-transform: uppercase; color: var(--text-2); }
+.tl-menu-hint { margin: 0; padding: 2px 10px 6px; }
+.ease-curve { color: var(--tween); }
+.tl-paste-banner {
+  position: absolute; right: 14px; bottom: 42px; z-index: 4; display: inline-flex; align-items: center; gap: 8px; padding: 4px 4px 4px 10px;
+  background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius); color: var(--text); font-size: 12px; backdrop-filter: blur(6px);
+}

@@ -1,5 +1,5 @@
 // Timeline: layer rows with visibility/lock/solo, frame grid (canvas), playhead, frame rate and zoom controls.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { cssColor, withAlpha } from '../domain/color';
 import { isLayerEffectivelyVisible } from '../domain/evaluator';
 import type { Layer } from '../domain/schema';
@@ -7,7 +7,10 @@ import {
   cmdAddLayer, cmdBlankFrame, cmdCreateTween, cmdDeleteFrames, cmdDeleteLayer, cmdDuplicateFrame, cmdDuplicateLayer, cmdInsertFrame,
   cmdMoveLayer, cmdUpdateLayer, goToFrame, toggleSolo, cmdAddKeyframe,
 } from '../editor/actions';
-import { commit, commitMerge, getState, store, useApp } from '../editor/state';
+import { clampedMove, keyId, keysInRange, spanTweenKeys, type KeyRef } from '../domain/keyframes';
+import type { Ease } from '../domain/schema';
+import { copyFrames, copyKeys, deleteFrameRange, deleteKeys, keyEase, pasteClip, setKeyEase, type TimelineClip } from '../domain/timelineClipboard';
+import { beginGesture, cancelGesture, commit, commitMerge, endGesture, getState, store, toast, updateGesture, useApp } from '../editor/state';
 import { commands, formatKeys, FPS_HELP, setPref, setTimelineZoom } from '../app/commands';
 import { useDismiss, usePopoverPosition } from '../app/controls';
 import { Icon } from '../app/icons';
@@ -103,6 +106,7 @@ function LayerRow({ layer, index, total, active, effVisible, onDragStart, dropHi
 export function Timeline() {
   const s = useApp((st) => ({
     project: st.project, frame: st.currentFrame, active: st.activeLayerId, range: st.frameRange, playing: st.playing, zoom: st.timelineZoom,
+    keySel: st.keySelection, clip: st.timelineClip, pasteArmed: st.pasteArmed,
   }));
   const [height, setHeight] = useState(240);
   const [scrollX, setScrollX] = useState(0);
@@ -114,6 +118,10 @@ export function Timeline() {
   const layersRef = useRef<HTMLDivElement | null>(null);
   const hscroll = useRef<HTMLDivElement | null>(null);
   const anchor = useRef<{ frame: number; layerIndex: number } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; layerId: string; frame: number; target: MenuTarget } | null>(null);
+  const [easeMenu, setEaseMenu] = useState<{ x: number; y: number; key: KeyRef } | null>(null);
+  const hold = useRef({ timer: 0, fired: false });
+  const lastKeyPress = useRef<{ id: string; time: number } | null>(null);
 
   const p = s.project;
   const ppf = s.zoom;
@@ -204,6 +212,7 @@ export function Timeline() {
       if (ppf >= 8) { c.fillStyle = '#272d36'; c.fillRect(X(f), 0, 1, H); }
     }
     c.fillStyle = 'rgba(0,0,0,.25)'; c.fillRect(X(p.durationFrames), 0, W, H);
+    const selected = new Set(s.keySel.map(keyId));
     displayLayers.forEach((layer, i) => {
       const y = i * rh;
       const vis = isLayerEffectivelyVisible(p, layer);
@@ -223,8 +232,15 @@ export function Timeline() {
         c.strokeRect(x0 + 1.5, y + 3.5, x1 - x0 - 3, rh - 8);
         // keyframe dot (filled = drawing, hollow = blank)
         const cx = x0 + Math.min(ppf, 14) / 2 + 1, cy = y + rh / 2 - 1;
-        c.beginPath(); c.arc(cx, cy, Math.max(2, Math.min(4, ppf / 3)), 0, Math.PI * 2);
-        if (filled) { c.fillStyle = '#f3f5f7'; c.fill(); } else { c.strokeStyle = '#f3f5f7'; c.stroke(); }
+        const dotR = Math.max(2, Math.min(4, ppf / 3));
+        if (selected.has(keyId({ layerId: layer.id, frame: e.startFrame, kind: 'drawing' }))) {
+          c.fillStyle = 'rgba(60,200,214,.35)'; c.fillRect(x0 + 1, y + 3, Math.max(ppf, 4) - 1, rh - 7);
+          c.beginPath(); c.arc(cx, cy, dotR + 2, 0, Math.PI * 2); c.fillStyle = '#3cc8d6'; c.fill();
+          c.lineWidth = 1.5; c.strokeStyle = '#fff'; c.stroke(); c.lineWidth = 1;
+        } else {
+          c.beginPath(); c.arc(cx, cy, dotR, 0, Math.PI * 2);
+          if (filled) { c.fillStyle = '#f3f5f7'; c.fill(); } else { c.strokeStyle = '#f3f5f7'; c.stroke(); }
+        }
         // tween bar + diamonds
         const keys = new Set<number>();
         for (const o of content?.objects ?? []) for (const k of o.keyframes) if (k.frame >= e.startFrame && k.frame <= e.endFrame) keys.add(k.frame);
@@ -236,8 +252,11 @@ export function Timeline() {
           }
           for (const k of ks) {
             const kx = X(k) + ppf / 2, ky = y + rh - 8;
-            c.fillStyle = '#f2a33a';
-            c.beginPath(); c.moveTo(kx, ky - 4); c.lineTo(kx + 4, ky); c.lineTo(kx, ky + 4); c.lineTo(kx - 4, ky); c.closePath(); c.fill();
+            const on = selected.has(keyId({ layerId: layer.id, frame: k, kind: 'tween' }));
+            const r = on ? 5 : 4;
+            c.fillStyle = on ? '#3cc8d6' : '#f2a33a';
+            c.beginPath(); c.moveTo(kx, ky - r); c.lineTo(kx + r, ky); c.lineTo(kx, ky + r); c.lineTo(kx - r, ky); c.closePath(); c.fill();
+            if (on) { c.lineWidth = 1.5; c.strokeStyle = '#fff'; c.stroke(); c.lineWidth = 1; }
           }
         }
       }
@@ -258,7 +277,7 @@ export function Timeline() {
     // playhead line
     c.fillStyle = 'rgba(255,77,109,.9)';
     c.fillRect(px + ppf / 2 - 0.5, 0, 1.5, H);
-  }, [p, s.frame, s.active, s.range, ppf, scrollX, width, rh, height]);
+  }, [p, s.frame, s.active, s.range, s.keySel, ppf, scrollX, width, rh, height]);
 
   // ------- interaction
   const frameAt = (clientX: number, el: HTMLElement) => {
@@ -281,27 +300,191 @@ export function Timeline() {
     el.addEventListener('pointerup', up);
   };
 
+  /** The keyframe under the pointer: a tween diamond (lower part of the cell) or a drawing key (span start). */
+  const keyAt = (clientX: number, clientY: number, el: HTMLElement): KeyRef | null => {
+    const f = frameAt(clientX, el), ri = rowAt(clientY, el);
+    const layer = displayLayers[ri];
+    if (!layer) return null;
+    const yIn = clientY - el.getBoundingClientRect().top - ri * rh;
+    const span = layer.exposureTrack.find((x) => f >= x.startFrame && f <= x.endFrame);
+    if (!span) return null;
+    const tween = spanTweenKeys(layer, span).includes(f);
+    if (tween && (yIn >= rh * 0.55 || span.startFrame !== f)) return { layerId: layer.id, frame: f, kind: 'tween' };
+    if (span.startFrame === f) return { layerId: layer.id, frame: f, kind: 'drawing' };
+    return null;
+  };
+
+  /** Click selects a key (Shift / Cmd / Ctrl toggles it); dragging moves every selected key together. */
+  const onKeyDown = (e: React.PointerEvent<HTMLCanvasElement>, hit: KeyRef, el: HTMLCanvasElement, secondClick = false) => {
+    const st = getState();
+    const id = keyId(hit);
+    const has = st.keySelection.some((k) => keyId(k) === id);
+    store.set({ activeLayerId: hit.layerId, frameRange: null, selection: [] });
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      store.set({ keySelection: has ? st.keySelection.filter((k) => keyId(k) !== id) : [...st.keySelection, hit] });
+      return;
+    }
+    const sel = has ? st.keySelection : [hit];
+    store.set({ keySelection: sel });
+    goToFrame(hit.frame);
+    const f0 = frameAt(e.clientX, el);
+    const x0 = e.clientX, y0 = e.clientY;
+    let applied = 0, warned = false, wandered = false;
+    beginGesture();
+    const base = getState().gestureBase!;
+    el.setPointerCapture(e.pointerId);
+    el.style.cursor = 'grabbing';
+    const mv = (ev: PointerEvent) => {
+      if (hold.current.fired) return;
+      if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 4) wandered = true;
+      const want = frameAt(ev.clientX, el) - f0;
+      const r = clampedMove(base, sel, want);
+      if (r.delta !== want && !warned) { warned = true; toast('Keyframes stop at the next key, and tween keys stay inside their drawing.'); }
+      if (r.delta === applied) return;
+      applied = r.delta;
+      updateGesture(() => r.project);
+      store.set({ keySelection: sel.map((k) => ({ ...k, frame: k.frame + applied })) });
+      goToFrame(hit.frame + applied);
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', mv);
+      el.removeEventListener('pointerup', up);
+      el.style.cursor = '';
+      if (applied) endGesture(sel.length > 1 ? 'Move keyframes' : 'Move keyframe');
+      else cancelGesture();
+      // A second click on the same key, released without dragging, is a double-click: open the ease menu.
+      if (secondClick && !applied && !wandered && !hold.current.fired) {
+        store.set({ keySelection: [hit] });
+        setMenu(null);
+        setEaseMenu({ x: x0, y: y0, key: hit });
+      }
+    };
+    el.addEventListener('pointermove', mv);
+    el.addEventListener('pointerup', up);
+  };
+
+  const onRowsHover = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.buttons) return;
+    const el = e.currentTarget as HTMLCanvasElement;
+    el.style.cursor = getState().pasteArmed ? 'copy' : keyAt(e.clientX, e.clientY, el) ? 'grab' : '';
+  };
+
+  // ------- hold menu (copy / paste / delete), click-to-paste, ease
+
+  /** What the menu acts on: the selected keyframes, the frame range, or the pressed frame on its own. */
+  const menuTarget = (f: number, layerId: string, hit: KeyRef | null): MenuTarget => {
+    const st = getState();
+    if (hit) {
+      const keys = st.keySelection.some((k) => keyId(k) === keyId(hit)) ? st.keySelection : [hit];
+      store.set({ keySelection: keys, activeLayerId: layerId });
+      return { kind: 'keys', keys };
+    }
+    const r = st.frameRange;
+    if (r && r.layerIds.includes(layerId) && f >= r.start && f <= r.end) return { kind: 'frames', layerIds: r.layerIds, start: r.start, end: r.end };
+    const one = { layerIds: [layerId], start: f, end: f };
+    store.set({ frameRange: one, keySelection: [], activeLayerId: layerId });
+    return { kind: 'frames', ...one };
+  };
+  const openMenu = (x: number, y: number, f: number, layerId: string, hit: KeyRef | null) => {
+    setEaseMenu(null);
+    setMenu({ x, y, layerId, frame: f, target: menuTarget(f, layerId, hit) });
+  };
+  /** Opens the menu if the pointer is held still for HOLD_MS. */
+  const startHold = (e: React.PointerEvent<HTMLCanvasElement>, el: HTMLCanvasElement, f: number, layerId: string, hit: KeyRef | null) => {
+    clearTimeout(hold.current.timer);
+    hold.current.fired = false;
+    const x0 = e.clientX, y0 = e.clientY;
+    const stopHold = () => { clearTimeout(hold.current.timer); el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', stopHold); };
+    const mv = (ev: PointerEvent) => { if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 4) stopHold(); };
+    el.addEventListener('pointermove', mv);
+    el.addEventListener('pointerup', stopHold);
+    hold.current.timer = window.setTimeout(() => {
+      stopHold();
+      hold.current.fired = true;
+      cancelGesture();
+      openMenu(x0, y0, f, layerId, hit);
+    }, HOLD_MS);
+  };
+
+  const copyTarget = (t: MenuTarget) => {
+    const p0 = getState().project;
+    const clip = t.kind === 'keys' ? copyKeys(p0, t.keys) : copyFrames(p0, t.layerIds, t.start, t.end);
+    if (!clip) { toast('Nothing to copy there.', 'warning'); return; }
+    store.set({ timelineClip: clip, pasteArmed: true });
+  };
+  const deleteTarget = (t: MenuTarget) => {
+    const st = getState();
+    const layerIds = t.kind === 'keys' ? t.keys.map((k) => k.layerId) : t.layerIds;
+    if (layerIds.some((id) => st.project.layers.find((l) => l.id === id)?.locked)) { toast('A selected layer is locked.', 'warning'); return; }
+    if (t.kind === 'keys') commit(t.keys.length > 1 ? 'Delete keyframes' : 'Delete keyframe', (pr) => deleteKeys(pr, t.keys));
+    else {
+      const n = t.end - t.start + 1;
+      commit(n > 1 ? `Delete ${n} frames` : 'Delete frame', (pr) => deleteFrameRange(pr, t.layerIds, t.start, t.end));
+    }
+    store.set({ keySelection: [], frameRange: null, selection: [] });
+  };
+  const pasteAt = (layerId: string, frame: number) => {
+    const clip = getState().timelineClip;
+    if (!clip) return;
+    let reason = '';
+    const ok = commit(clip.kind === 'tweenKeys' ? 'Paste keyframes' : 'Paste frames', (pr) => {
+      const r = pasteClip(pr, clip, layerId, frame);
+      if ('reason' in r) { reason = r.reason; return pr; }
+      return r.project;
+    });
+    if (!ok) { toast(reason || 'Nothing was pasted.', 'warning'); return; }
+    store.set({ pasteArmed: false, activeLayerId: layerId, frameRange: null, keySelection: [], selection: [] });
+    goToFrame(frame);
+  };
+  const setEase = (k: KeyRef, ease: Ease) => commit('Set ease', (pr) => setKeyEase(pr, k, ease));
+
+  const onRowsContext = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const el = e.currentTarget as HTMLCanvasElement;
+    const layer = displayLayers[rowAt(e.clientY, el)];
+    if (layer) openMenu(e.clientX, e.clientY, frameAt(e.clientX, el), layer.id, keyAt(e.clientX, e.clientY, el));
+  };
+
   const onRowsDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const el = e.currentTarget as HTMLCanvasElement;
     el.focus();
     stop();
     const f = frameAt(e.clientX, el), ri = rowAt(e.clientY, el);
     const layer = displayLayers[ri];
-    if (!layer) return;
+    if (!layer || e.button !== 0) return; // right-click opens the menu (onContextMenu)
+    if (getState().pasteArmed) { pasteAt(layer.id, f); return; }
+    const hit = keyAt(e.clientX, e.clientY, el);
+    if (hit) {
+      // Double-click a keyframe: ease menu.
+      // Double-click a keyframe for the ease menu (confirmed on release, so click-then-drag still drags).
+      const now = performance.now(), id = keyId(hit);
+      const prev = lastKeyPress.current;
+      const second = !!prev && prev.id === id && now - prev.time < 400;
+      lastKeyPress.current = second ? null : { id, time: now };
+      anchor.current = { frame: f, layerIndex: ri };
+      startHold(e, el, f, layer.id, hit);
+      onKeyDown(e, hit, el, second);
+      return;
+    }
+    lastKeyPress.current = null;
+    startHold(e, el, f, layer.id, null);
     const setRange = (f2: number, r2: number) => {
       const a = anchor.current!;
       const lo = Math.min(a.layerIndex, r2), hi = Math.max(a.layerIndex, r2);
-      store.set({ frameRange: { layerIds: displayLayers.slice(lo, hi + 1).map((l) => l.id), start: Math.min(a.frame, f2), end: Math.max(a.frame, f2) } });
+      const range = { layerIds: displayLayers.slice(lo, hi + 1).map((l) => l.id), start: Math.min(a.frame, f2), end: Math.max(a.frame, f2) };
+      // A frame range also selects the keyframes inside it, ready to drag.
+      store.set({ frameRange: range, keySelection: keysInRange(getState().project, range.layerIds, range.start, range.end) });
     };
     if (e.shiftKey && anchor.current) {
       setRange(f, ri);
     } else {
       anchor.current = { frame: f, layerIndex: ri };
-      store.set({ activeLayerId: layer.id, frameRange: null, selection: [] });
+      store.set({ activeLayerId: layer.id, frameRange: null, keySelection: [], selection: [] });
     }
     goToFrame(f);
     el.setPointerCapture(e.pointerId);
     const mv = (ev: PointerEvent) => {
+      if (hold.current.fired) return;
       const f2 = frameAt(ev.clientX, el), r2 = rowAt(ev.clientY, el);
       if (f2 !== anchor.current?.frame || r2 !== anchor.current?.layerIndex) setRange(f2, r2);
       goToFrame(f2);
@@ -411,8 +594,8 @@ export function Timeline() {
           ))}
         </div>
         <div className="tl-rows" ref={rowsWrap} onScroll={(e: React.UIEvent<HTMLDivElement>) => { if (layersRef.current) layersRef.current.scrollTop = (e.currentTarget as HTMLDivElement).scrollTop; }}>
-          <canvas ref={rowsRef} tabIndex={0} onPointerDown={onRowsDown} onKeyDown={onRowsKey}
-            aria-label={`Frames. Frame ${s.frame + 1} of ${p.durationFrames}. Arrow keys: left and right change frame, up and down change layer. Shift-click selects a range.`} />
+          <canvas ref={rowsRef} tabIndex={0} onPointerDown={onRowsDown} onPointerMove={onRowsHover} onKeyDown={onRowsKey} onContextMenu={onRowsContext}
+            aria-label={`Frames. Frame ${s.frame + 1} of ${p.durationFrames}. Arrow keys: left and right change frame, up and down change layer. Shift-click selects a range. Click a keyframe to select it, Shift-click to add more, and drag to move them. Press and hold, or right-click, for copy, paste and delete. Double-click a keyframe to change its ease.`} />
         </div>
         <div className="tl-layer-actions">
           <button className="icon-btn sm" aria-label="Add layer" data-tip="Add layer" data-tip-desc={commands['tl.addLayer'].help} onClick={cmdAddLayer}><Icon name="plus" size={16} /></button>
@@ -425,7 +608,124 @@ export function Timeline() {
           <div style={{ width: totalW }} />
         </div>
       </div>
+      {s.pasteArmed && s.clip && (
+        <div className="tl-paste-banner" role="status">
+          <Icon name="copy" size={14} />
+          <span>Click a frame to paste {describeClip(s.clip)} · Esc cancels</span>
+          <button className="btn sm ghost" data-tip-desc="Stop pasting. The copied frames stay available from the hold menu." onClick={() => store.set({ pasteArmed: false })}>Cancel</button>
+        </div>
+      )}
+      {menu && (
+        <TimelineMenu x={menu.x} y={menu.y} label={menu.target.kind === 'keys' ? 'Keyframe actions' : 'Frame actions'} onClose={() => setMenu(null)}>
+          {(() => {
+            const t = menu.target;
+            const what = t.kind === 'keys'
+              ? (t.keys.length > 1 ? `${t.keys.length} keyframes` : 'keyframe')
+              : (t.end > t.start ? `${t.end - t.start + 1} frames` : 'frame');
+            const single = t.kind === 'keys' && t.keys.length === 1 ? t.keys[0] : null;
+            const close = (fn: () => void) => () => { setMenu(null); fn(); };
+            return (
+              <>
+                <button role="menuitem" onClick={close(() => copyTarget(t))} data-tip={`Copy ${what}`}
+                  data-tip-desc="Copy, then click any frame in the timeline to paste there. Later frames move right to make room.">
+                  <Icon name="copy" size={16} /><span>Copy {what}</span>
+                </button>
+                {s.clip && (
+                  <button role="menuitem" onClick={close(() => pasteAt(menu.layerId, menu.frame))} data-tip={`Paste ${describeClip(s.clip)} here`}
+                    data-tip-desc="Insert the copied frames at this frame. Later frames move right; nothing is overwritten.">
+                    <Icon name="frameAdd" size={16} /><span>Paste {describeClip(s.clip)} here</span>
+                  </button>
+                )}
+                {single && keyEase(p, single) !== undefined && (
+                  <button role="menuitem" onClick={close(() => setEaseMenu({ x: menu.x, y: menu.y, key: single }))} data-tip="Ease…"
+                    data-tip-desc="Change how the motion speeds up or slows down from this keyframe to the next.">
+                    <Icon name="tween" size={16} /><span>Ease…</span>
+                  </button>
+                )}
+                <hr />
+                <button role="menuitem" className="danger" onClick={close(() => deleteTarget(t))} data-tip={`Delete ${what}`}
+                  data-tip-desc={t.kind === 'keys'
+                    ? 'Remove the keyframe. A drawing\u2019s frames are then held by the drawing before it; a tween key is removed from its objects.'
+                    : 'Remove these frames. Later frames move left to close the gap.'}>
+                  <Icon name="trash" size={16} /><span>Delete {what}</span>
+                </button>
+              </>
+            );
+          })()}
+        </TimelineMenu>
+      )}
+      {easeMenu && (() => {
+        const current = keyEase(p, easeMenu.key);
+        return (
+          <TimelineMenu x={easeMenu.x} y={easeMenu.y} label="Ease" onClose={() => setEaseMenu(null)}>
+            <div className="tl-menu-title">Ease to the next keyframe</div>
+            {current === undefined ? (
+              <p className="hint tl-menu-hint">This drawing has no motion tween, so there is nothing to ease. Select an object and use Create Motion Tween first.</p>
+            ) : EASES.map((x) => (
+              <button key={x.id} role="menuitemradio" aria-checked={current === x.id} data-tip={x.label} data-tip-desc={x.help}
+                onClick={() => { setEaseMenu(null); setEase(easeMenu.key, x.id); }}>
+                <span className="check">{current === x.id ? <Icon name="check" size={16} /> : null}</span>
+                <EaseCurve ease={x.id} /><span>{x.label}</span>
+              </button>
+            ))}
+          </TimelineMenu>
+        );
+      })()}
     </section>
+  );
+}
+
+type MenuTarget = { kind: 'keys'; keys: KeyRef[] } | { kind: 'frames'; layerIds: string[]; start: number; end: number };
+
+const HOLD_MS = 500;
+
+const EASES: { id: Ease; label: string; help: string }[] = [
+  { id: 'linear', label: 'Linear', help: 'Constant speed from this keyframe to the next.' },
+  { id: 'easeIn', label: 'Ease in', help: 'Starts slowly and speeds up toward the next keyframe.' },
+  { id: 'easeOut', label: 'Ease out', help: 'Starts fast and slows down into the next keyframe.' },
+  { id: 'easeInOut', label: 'Ease in-out', help: 'Starts slowly, speeds up in the middle and slows down at the end.' },
+];
+
+function describeClip(c: TimelineClip): string {
+  if (c.kind === 'tweenKeys') { const n = new Set(c.keys.map((k) => k.rel)).size; return n > 1 ? `${n} keyframes` : '1 keyframe'; }
+  const frames = c.length > 1 ? `${c.length} frames` : '1 frame';
+  return c.layers.length > 1 ? `${frames} on ${c.layers.length} layers` : frames;
+}
+
+/** Small curve preview for an ease option. */
+function EaseCurve({ ease }: { ease: Ease }) {
+  const d = { linear: 'M2 14L14 2', easeIn: 'M2 14C9 14 12 8 14 2', easeOut: 'M2 14C4 8 7 2 14 2', easeInOut: 'M2 14C8 14 8 2 14 2' }[ease];
+  return (
+    <svg className="icon ease-curve" width={16} height={16} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d={d} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Small floating menu at a pointer position; closes on outside press or Escape. */
+function TimelineMenu({ x, y, label, onClose, children }: { x: number; y: number; label: string; onClose: () => void; children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  useDismiss(ref, onClose);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const top = y - r.height - 10 >= 8 ? y - r.height - 10 : Math.min(window.innerHeight - r.height - 8, y + 14);
+    setPos({ left: Math.max(8, Math.min(window.innerWidth - r.width - 8, x - 12)), top });
+    el.querySelector<HTMLElement>('[role^="menuitem"]')?.focus({ preventScroll: true });
+  }, [x, y]);
+  return (
+    <div ref={ref} className="tl-menu" role="menu" aria-label={label}
+      style={pos ? { left: pos.left, top: pos.top } : { left: x, top: y, visibility: 'hidden' }}
+      onKeyDown={(e: React.KeyboardEvent) => {
+        const items = Array.from(ref.current!.querySelectorAll<HTMLElement>('[role^="menuitem"]'));
+        const i = items.indexOf(document.activeElement as HTMLElement);
+        if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length]?.focus(); }
+        if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length]?.focus(); }
+      }}>
+      {children}
+    </div>
   );
 }
 

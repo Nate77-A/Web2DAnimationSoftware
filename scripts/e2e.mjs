@@ -409,6 +409,100 @@ await shot('04-final');
   await ctx2.close();
 }
 
+// Timeline keyframes: select and move (fresh context)
+{
+  const ctx3 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const pg = await ctx3.newPage();
+  pg.on('console', (m) => { if (m.type() === 'error') errors.push('keys: ' + m.text()); });
+  pg.on('pageerror', (e) => errors.push('keys pageerror: ' + e.message));
+  await pg.goto('http://localhost:4173/');
+  await pg.waitForSelector('.stage canvas');
+  await pg.waitForTimeout(400);
+  const st = () => pg.evaluate(() => window.__studio.get());
+  // Layer: drawing A 1-10 (tween keys on 1 and 10), drawing B 11-20, empty 21-25, drawing C 26-30.
+  await pg.evaluate(() => {
+    const s = window.__studio.get();
+    const o = (id, keys) => ({ id, name: id, kind: 'shape', visible: true, locked: false, opacity: 1, metadata: {}, keyframes: keys.map((f) => ({ frame: f, x: 300 + f * 20, y: 300, rotation: 0, scaleX: 1, scaleY: 1, opacity: 1, ease: 'linear' })),
+      style: { fill: { type: 'solid', color: '#3CC8D6FF' }, stroke: { type: 'none' }, strokeWidth: 0, cap: 'round', join: 'round', dash: [], fillRule: 'nonzero' },
+      geometry: { shape: 'rect', width: 80, height: 80, sides: 4, cornerRadius: 0 }, transform: { x: 300, y: 300, rotation: 0, scaleX: 1, scaleY: 1, pivotX: 40, pivotY: 40 } });
+    const l = s.project.layers[0];
+    const layer = { ...l, exposureTrack: [{ startFrame: 0, endFrame: 9, contentId: 'ka' }, { startFrame: 10, endFrame: 19, contentId: 'kb' }, { startFrame: 25, endFrame: 29, contentId: 'kc' }],
+      objectTracks: [{ id: 'ka', objects: [o('ball', [0, 9])] }, { id: 'kb', objects: [o('box', [])] }, { id: 'kc', objects: [o('end', [])] }] };
+    window.__studio.set({ project: { ...s.project, layers: [layer] }, activeLayerId: layer.id, currentFrame: 0 });
+  });
+  await pg.waitForTimeout(150);
+  const rows = await pg.locator('.tl-rows canvas').boundingBox();
+  const ppf = (await st()).timelineZoom;
+  const DOT = (f) => [rows.x + (f + 0.5) * ppf, rows.y + 13];
+  const DIA = (f) => [rows.x + (f + 0.5) * ppf, rows.y + 20];
+  const spans = async () => (await st()).project.layers[0].exposureTrack.map((e) => `${e.startFrame}-${e.endFrame}`).join(' ');
+  const sel = async () => (await st()).keySelection.map((k) => `${k.kind[0]}${k.frame}`).sort().join(' ');
+  const label = async () => { const p = (await st()).past; return p[p.length - 1]?.label; };
+  const dragTo = async (from, to) => { await pg.mouse.move(...from); await pg.mouse.down(); await pg.mouse.move(...to, { steps: 6 }); await pg.mouse.up(); };
+
+  await pg.mouse.click(...DOT(10));
+  check('clicking a drawing keyframe selects it', (await sel()) === 'd10' && (await st()).currentFrame === 10);
+  await dragTo(DOT(10), DOT(13));
+  check('dragging a keyframe moves it; the drawing before holds longer', (await spans()) === '0-12 13-22 25-29' && (await label()) === 'Move keyframe' && (await sel()) === 'd13',
+    await spans());
+  await pg.keyboard.press('ControlOrMeta+z');
+
+  await pg.mouse.click(...DOT(10));
+  await pg.keyboard.down('Shift'); await pg.mouse.click(...DOT(25)); await pg.keyboard.up('Shift');
+  check('Shift-click adds keyframes to the selection', (await sel()) === 'd10 d25');
+  await dragTo(DOT(10), DOT(12));
+  check('dragging moves all selected keyframes together', (await spans()) === '0-11 12-21 27-31' && (await label()) === 'Move keyframes', await spans());
+  await pg.keyboard.press('ControlOrMeta+z');
+
+  await dragTo(DIA(9), DIA(6));
+  const ballKeys = (await st()).project.layers[0].objectTracks.find((c) => c.id === 'ka').objects[0].keyframes.map((k) => k.frame).join(',');
+  check('dragging a tween keyframe moves it within its drawing', ballKeys === '0,6' && (await sel()) === 't6', ballKeys);
+  await pg.keyboard.press('ControlOrMeta+z');
+
+  await dragTo(DOT(10), DOT(3));
+  check('a keyframe stops instead of cutting off a tween key', (await spans()) === '0-9 10-19 25-29'
+    && (await pg.locator('.toast', { hasText: 'Keyframes stop at the next key' }).count()) >= 1, await spans());
+
+  await dragTo(DOT(21), DOT(27));
+  check('dragging across frames selects the keyframes inside', (await sel()) === 'd25' && (await st()).frameRange !== null);
+  await pg.keyboard.press('Escape');
+  check('Esc clears the keyframe selection', (await sel()) === '');
+
+  // Hold menu: copy a frame, click another frame to paste
+  const holdAt = async (pt) => { await pg.mouse.move(...pt); await pg.mouse.down(); await pg.waitForTimeout(750); await pg.mouse.up(); };
+  const menuItem = (name) => pg.locator('.tl-menu [role^="menuitem"]', { hasText: name });
+  await holdAt(DOT(15));
+  check('holding on a frame opens the frame menu', (await menuItem('Copy frame').count()) === 1 && (await menuItem('Delete frame').count()) === 1);
+  await menuItem('Copy frame').click();
+  check('Copy arms click-to-paste', (await st()).pasteArmed && (await pg.locator('.tl-paste-banner').count()) === 1);
+  await pg.mouse.click(...DOT(3));
+  check('clicking a frame pastes there and pushes later frames right', (await spans()) === '0-2 3-3 4-10 11-20 26-30' && (await label()) === 'Paste frames'
+    && !(await st()).pasteArmed, await spans());
+  await pg.keyboard.press('ControlOrMeta+z');
+
+  await holdAt(DOT(10));
+  check('holding on a keyframe opens the keyframe menu', (await menuItem('Delete keyframe').count()) === 1);
+  await menuItem('Delete keyframe').click();
+  check('deleting a drawing keyframe lets the drawing before it hold', (await spans()) === '0-19 25-29' && (await label()) === 'Delete keyframe', await spans());
+  await pg.keyboard.press('ControlOrMeta+z');
+
+  await pg.evaluate(() => window.__studio.set({ toasts: [] })); // undo toasts stack over this part of the timeline
+  await pg.mouse.click(...DOT(27), { button: 'right' });
+  const rightMenu = (await menuItem('Copy frame').count()) === 1;
+  await pg.keyboard.press('Escape');
+  check('right-click opens the menu; Esc closes it without changes', rightMenu && (await pg.locator('.tl-menu').count()) === 0 && (await spans()) === '0-9 10-19 25-29',
+    `menu=${rightMenu} open=${await pg.locator('.tl-menu').count()} ${await spans()}`);
+
+  await pg.mouse.dblclick(...DIA(0));
+  check('double-clicking a keyframe opens the ease menu', (await pg.locator('.tl-menu [role="menuitemradio"]').count()) === 4
+    && (await pg.locator('.tl-menu [role="menuitemradio"][aria-checked="true"]').innerText()).includes('Linear'));
+  await pg.screenshot({ path: `${SHOTS}/07-ease-menu.png` });
+  await pg.locator('.tl-menu [role="menuitemradio"]', { hasText: 'Ease out' }).click();
+  const ease0 = (await st()).project.layers[0].objectTracks.find((c) => c.id === 'ka').objects[0].keyframes[0].ease;
+  check('choosing an ease sets it on the keyframe', ease0 === 'easeOut' && (await label()) === 'Set ease', ease0);
+  await ctx3.close();
+}
+
 check('no console errors', errors.length === 0, errors.join(' | '));
 await browser.close();
 server.close();
