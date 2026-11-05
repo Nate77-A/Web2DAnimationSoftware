@@ -226,6 +226,25 @@ const animsPath = `${SHOTS}/project.anims`;
 await dl4.saveAs(animsPath);
 check('native save writes a ZIP .anims', fs.readFileSync(animsPath).slice(0, 2).toString() === 'PK');
 
+// Open: the saved file must be selectable (no accept filter) and load back; other files get a clear message
+await page.waitForTimeout(300);
+const countSaved = await objectCount();
+let [openChooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('ControlOrMeta+o')]);
+const accept = await openChooser.element().getAttribute('accept');
+await openChooser.setFiles(animsPath);
+await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('Opened')), null, { timeout: 5000 }).catch(() => {});
+check('File › Open lists every file and reopens a saved .anims', !accept && (await objectCount()) === countSaved, `accept=${accept}`);
+const notProject = `${SHOTS}/notes.txt`;
+fs.writeFileSync(notProject, 'hello');
+[openChooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('ControlOrMeta+o')]);
+await openChooser.setFiles(notProject);
+const dlg = page.locator('.dialog', { hasText: 'Could not open project' });
+await dlg.waitFor({ timeout: 5000 }).catch(() => {});
+const dlgText = await dlg.innerText().catch(() => '(no dialog)');
+check('opening a file that is not a project explains why', dlgText.includes('“notes.txt” is not an Animation Studio project'), dlgText.replace(/\s+/g, ' ').slice(0, 160));
+await dlg.getByRole('button', { name: 'OK' }).click();
+check('the error dialog closes with OK', (await page.locator('.dialog').count()) === 0);
+
 // Persistence: reload restores project
 await page.waitForTimeout(1200);
 const idBefore = (await proj()).id, countBefore = await objectCount();
@@ -501,6 +520,73 @@ await shot('04-final');
   const ease0 = (await st()).project.layers[0].objectTracks.find((c) => c.id === 'ka').objects[0].keyframes[0].ease;
   check('choosing an ease sets it on the keyframe', ease0 === 'easeOut' && (await label()) === 'Set ease', ease0);
   await ctx3.close();
+}
+
+// Paint Brush (fresh context)
+{
+  const ctx4 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const pg = await ctx4.newPage();
+  pg.on('console', (m) => { if (m.type() === 'error') errors.push('paint: ' + m.text()); });
+  pg.on('pageerror', (e) => errors.push('paint pageerror: ' + e.message));
+  await pg.goto('http://localhost:4173/');
+  await pg.waitForSelector('.stage canvas');
+  await pg.waitForTimeout(400);
+  const st = () => pg.evaluate(() => window.__studio.get());
+  const objs = async () => (await st()).project.layers.flatMap((l) => l.objectTracks.flatMap((c) => c.objects));
+  const box = await pg.locator('.stage').boundingBox();
+  const P = async (x, y) => { const v = (await st()).viewport; return [box.x + v.panX + x * v.zoom, box.y + v.panY + y * v.zoom]; };
+  const stroke = async (x0, y0, x1, y1) => {
+    await pg.mouse.move(...(await P(x0, y0))); await pg.mouse.down();
+    for (let i = 1; i <= 12; i++) await pg.mouse.move(...(await P(x0 + ((x1 - x0) * i) / 12, y0 + ((y1 - y0) * i) / 12)));
+    await pg.mouse.up();
+  };
+  await pg.keyboard.press('y');
+  await pg.evaluate(() => window.__studio.set({ fill: { type: 'solid', color: '#E2556EFF' } }));
+  await stroke(300, 300, 900, 300);
+  const first = (await objs())[0];
+  check('Paint Brush paints with the fill color and no outline', (await objs()).length === 1 && first.style.fill.color === '#E2556EFF'
+    && first.style.stroke.type === 'none' && (await st()).tool === 'paint');
+  await stroke(600, 150, 600, 500);
+  const merged = await objs();
+  check('a stroke over the same color merges into one shape', merged.length === 1 && merged[0].metadata.paintBrush === '1'
+    && (await st()).past.at(-1).label === 'Paint');
+  await pg.keyboard.press('ControlOrMeta+z');
+  check('undo separates the merged stroke again', (await objs()).length === 1 && (await objs())[0].id === first.id);
+  await pg.evaluate(() => window.__studio.set({ fill: { type: 'solid', color: '#3CC8D6FF' } }));
+  await stroke(600, 150, 600, 500);
+  check('a different color paints on top without merging', (await objs()).length === 2);
+  await pg.screenshot({ path: `${SHOTS}/08-paint.png` });
+
+  // Eraser rubs out paint
+  await pg.keyboard.press('ControlOrMeta+z'); // back to the single pink stroke
+  const pink = (await objs())[0];
+  await pg.keyboard.press('e');
+  await pg.evaluate(() => window.__studio.set({ toolOptions: { ...window.__studio.get().toolOptions, eraser: { size: 40, mode: 'split', allLayers: false } } }));
+  await stroke(600, 150, 600, 450);
+  const cut = (await objs())[0];
+  check('the eraser cuts paint in two where it sweeps', (await objs()).length === 1 && cut.id === pink.id && (cut.geometry.subpaths?.length ?? 0) === 1
+    && (await st()).past.at(-1).label === 'Erase');
+  await pg.keyboard.press('ControlOrMeta+z');
+  check('undo restores the erased paint', !(await objs())[0].geometry.subpaths);
+
+  // A long zigzag erase stays responsive: compare with the same gesture over empty canvas
+  const zig = async (dx, dy) => {
+    const pts = [];
+    for (let i = 0; i <= 80; i++) pts.push(await P(320 + dx + i * 7, (i % 2 ? 340 : 260) + dy));
+    const t0 = Date.now();
+    await pg.mouse.move(...pts[0]); await pg.mouse.down();
+    for (const pt of pts) await pg.mouse.move(...pt);
+    await pg.mouse.up();
+    return Date.now() - t0;
+  };
+  const empty = await zig(0, 600); // erases nothing, so nothing to undo
+  const over = await zig(0, 0);
+  const perMove = (over - empty) / 81;
+  const zigged = (await objs()).find((x) => x.id === pink.id);
+  check('a long eraser stroke over paint stays responsive', perMove < 25 && (zigged?.geometry.subpaths?.length ?? 0) === 1,
+    `${over} ms over paint vs ${empty} ms over nothing (+${perMove.toFixed(1)} ms per move), ${1 + (zigged?.geometry.subpaths?.length ?? -1)} pieces left`);
+  await pg.screenshot({ path: `${SHOTS}/09-erase-paint.png` });
+  await ctx4.close();
 }
 
 check('no console errors', errors.length === 0, errors.join(' | '));

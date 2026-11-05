@@ -11,6 +11,7 @@ import { addObjects, locateObject, mapObjects, removeObjects, replaceObject, set
 import { evaluateLayer, isLayerEffectivelyVisible, sampleObject } from '../domain/evaluator';
 import type { Paint, PathObject, Project, SceneObject, Segment, ShapeObject, Style, TextObject, Transform, Vec } from '../domain/schema';
 import { getAssetImage } from '../features/assets';
+import { eraserSweep, erasePaint, isPaint, mergePaint, PAINT_TAG } from './combine';
 import { editablePath } from './pathEdit';
 import { enterPathEdit, exitPathEdit, pathEditCancel, pathEditDown, pathEditHover, pathEditKey, pathEditMove, pathEditUp } from './pathEditTool';
 import { renderScene, cachedLocalBounds } from './renderer';
@@ -51,7 +52,8 @@ export const TOOL_LIST: ToolMeta[] = [
   { id: 'select', label: 'Select', shortcut: 'V', help: 'Click an object to select it, drag to move it, or drag on empty space to box-select. Shift-click adds to the selection. Double-click a path, shape or brush stroke to edit its points.' },
   { id: 'transform', label: 'Move, Rotate & Scale', shortcut: 'Q', help: 'Select objects and use the handles to move, rotate and scale them. Shift keeps proportions; Alt scales from the center.' },
   { id: 'brush', label: 'Brush', shortcut: 'B', help: 'Draw freehand strokes. Pen pressure and tilt change the width when your device supports them.', drawing: true },
-  { id: 'eraser', label: 'Eraser', shortcut: 'E', help: 'Drag across brush strokes to cut them apart, or switch to Delete mode to remove whole objects.', drawing: true },
+  { id: 'paint', label: 'Paint Brush', shortcut: 'Y', help: 'Paint filled areas with the fill color. Strokes that touch paint of the same color merge into one shape, so you can build up and fill in areas.', drawing: true },
+  { id: 'eraser', label: 'Eraser', shortcut: 'E', help: 'Drag across brush strokes to cut them apart and across Paint Brush paint to rub it out, or switch to Delete mode to remove whole objects.', drawing: true },
   { id: 'shape', label: 'Shape', shortcut: 'U', help: 'Drag to draw a rectangle, ellipse, triangle or polygon. Shift makes it even; Alt draws from the center.', drawing: true },
   { id: 'pen', label: 'Pen', shortcut: 'P', help: 'Click to place points, drag to make curves, click the first point to close. Enter finishes, Esc cancels.', drawing: true },
   { id: 'text', label: 'Text', shortcut: 'T', help: 'Click the stage to add text, or click existing text to edit it. Ctrl/⌘+Enter commits, Esc cancels.', drawing: true },
@@ -312,7 +314,11 @@ const safeScale = (v: number) => (Math.abs(v) < 0.001 ? (v < 0 ? -0.001 : 0.001)
 
 // ------------------------------------------------------------------ brush
 
-function createBrushTool(): Tool {
+/**
+ * Freehand strokes. `brush` draws with the stroke color. `paint` paints with the fill color and, when its merge
+ * option is on, joins each stroke with touching paint of the same color into one filled shape.
+ */
+function createBrushTool(kind: 'brush' | 'paint'): Tool {
   let raw: RawSample[] = [];
   let id = '';
   let pointerType = 'mouse';
@@ -320,19 +326,20 @@ function createBrushTool(): Tool {
 
   const build = (): PathObject | null => {
     const s = getState();
-    const opts = s.toolOptions.brush;
+    const opts = s.toolOptions[kind];
     const spacing = Math.max(0.5, 1.5 / s.viewport.zoom);
-    const { opacity: _o, ...settings } = opts;
-    void _o;
+    const { opacity: _o, merge: _m, ...settings } = { merge: false, ...opts };
+    void _o; void _m;
     const samples = processSamples(raw, settings, spacing);
     if (!samples.length) return null;
     const hasPressure = detectPressure(raw, pointerType);
     const hasTilt = detectTilt(raw);
     const segs = brushOutline(samples, settings, hasPressure, hasTilt);
-    const paint: Paint = s.stroke.type !== 'none' ? s.stroke : s.fill.type !== 'none' ? s.fill : { type: 'solid', color: '#000000FF' };
+    const [first, second] = kind === 'paint' ? [s.fill, s.stroke] : [s.stroke, s.fill];
+    const paint: Paint = first.type !== 'none' ? first : second.type !== 'none' ? second : { type: 'solid', color: '#000000FF' };
     const style: Style = { fill: paint, stroke: { type: 'none' }, strokeWidth: 0, cap: 'round', join: 'round', dash: [], fillRule: 'nonzero' };
-    const obj = makePathObject('Brush stroke', segs, true, style, { samples, hasPressure, hasTilt, settings }, id);
-    return { ...obj, opacity: opts.opacity };
+    const obj = makePathObject(kind === 'paint' ? 'Paint' : 'Brush stroke', segs, true, style, { samples, hasPressure, hasTilt, settings }, id);
+    return { ...obj, opacity: opts.opacity, ...(kind === 'paint' ? { metadata: { [PAINT_TAG]: '1' } } : {}) };
   };
 
   const push = (e: PointerInfo) => {
@@ -365,11 +372,18 @@ function createBrushTool(): Tool {
     up() {
       if (!active) return;
       active = false;
-      endGesture('Brush stroke', [id]);
+      if (kind === 'brush') { endGesture('Brush stroke', [id]); return; }
+      const s = getState();
+      let ids = [id];
+      if (s.toolOptions.paint.merge) {
+        const merged = mergePaint(s.project, s.activeLayerId, s.currentFrame, id);
+        if (merged) { updateGesture(() => merged.project); ids = [merged.id]; }
+      }
+      endGesture('Paint', ids);
     },
     hover(e) {
       const s = getState();
-      setOverlay({ brushCursor: { pos: e.doc, r: s.toolOptions.brush.size / 2 } });
+      setOverlay({ brushCursor: { pos: e.doc, r: s.toolOptions[kind].size / 2 } });
     },
     leave() { setOverlay({ brushCursor: null }); },
     cancel() { if (active) cancelGesture(); active = false; setOverlay({ brushCursor: null }); },
@@ -381,6 +395,7 @@ function createBrushTool(): Tool {
 /** v1 semantics: split brush strokes along the swept path, or delete any touched object (docs/decisions/0004). */
 function applyEraser(base: Project, frame: number, layerIds: string[], circles: { x: number; y: number; r: number }[], mode: 'split' | 'delete'): Project {
   let p = base;
+  let sweep: ReturnType<typeof eraserSweep> | undefined; // built on first use
   for (const layerId of layerIds) {
     const layer = p.layers.find((l) => l.id === layerId);
     if (!layer) continue;
@@ -389,6 +404,14 @@ function applyEraser(base: Project, frame: number, layerIds: string[], circles: 
       if (o.locked) continue;
       if (mode === 'delete') {
         if (circles.some((c) => hitObject(eo, [c.x, c.y], c.r))) p = removeObjects(p, [o.id]);
+        continue;
+      }
+      if (isPaint(o)) {
+        // Paint Brush paint is erased like paint: the swept band is cut out of it.
+        sweep ??= eraserSweep(circles);
+        const r = sweep ? erasePaint(eo, sweep) : 'unchanged';
+        if (r === null) p = removeObjects(p, [o.id]);
+        else if (r !== 'unchanged') p = replaceObject(p, o.id, [r]);
         continue;
       }
       if (o.kind !== 'path' || !o.brush) continue;
@@ -412,6 +435,7 @@ function applyEraser(base: Project, frame: number, layerIds: string[], circles: 
 
 function createEraserTool(): Tool {
   let circles: { x: number; y: number; r: number }[] = [];
+  let applied = 0; // circles already erased into the live project
   let active = false;
   const targets = () => {
     const s = getState();
@@ -429,8 +453,13 @@ function createEraserTool(): Tool {
       for (let i = 1; i <= n; i++) circles.push({ x: last.x + ((e.doc[0] - last.x) * i) / (n + 1), y: last.y + ((e.doc[1] - last.y) * i) / (n + 1), r });
     }
     circles.push({ x: e.doc[0], y: e.doc[1], r });
-    const frame = s.currentFrame, layerIds = targets(), mode = s.toolOptions.eraser.mode, cs = circles.slice();
-    updateGesture((base) => applyEraser(base, frame, layerIds, cs, mode));
+    // Erase only the new part of the sweep (joined to the previous position) into the live project, so each
+    // move costs the same however long the stroke gets. Cutting is cumulative, so the result matches erasing
+    // the whole sweep at once; undo still returns to the gesture's start.
+    const fresh = circles.slice(Math.max(0, applied - 1));
+    applied = circles.length;
+    const frame = s.currentFrame, layerIds = targets(), mode = s.toolOptions.eraser.mode;
+    updateGesture(() => applyEraser(getState().project, frame, layerIds, fresh, mode));
     setOverlay({ eraser: { pos: e.doc, r } });
   };
   return {
@@ -439,6 +468,7 @@ function createEraserTool(): Tool {
       if (!s.toolOptions.eraser.allLayers && !activeLayerEditable()) return;
       active = true;
       circles = [];
+      applied = 0;
       beginGesture();
       step(e);
     },
@@ -698,7 +728,8 @@ function createZoomTool(): Tool {
 export const tools: Record<ToolId, Tool> = {
   select: createSelectTool(false),
   transform: createSelectTool(true),
-  brush: createBrushTool(),
+  brush: createBrushTool('brush'),
+  paint: createBrushTool('paint'),
   eraser: createEraserTool(),
   shape: createShapeTool(),
   pen: createPenTool(),

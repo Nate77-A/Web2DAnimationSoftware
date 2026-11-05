@@ -29,6 +29,24 @@ square) or several separate pieces, but a path object held exactly one outline.
   the even-odd fill rule so holes render correctly whatever direction Paper winds them. Path edit mode is
   disabled for compound paths for now.
 
+## Paint Brush merging (addendum)
+The Paint Brush (`createBrushTool('paint')`) draws like the Brush but fills with the fill swatch and tags its
+shapes with `metadata.paintBrush`. When a stroke ends, `mergePaint` unites it with every tagged shape on the same
+layer and frame that it overlaps (shared area, not just a touching edge) and that has the same fill, the same
+opacity and no keyframes. Merging only tagged shapes keeps rectangles, pen paths and brush strokes of the same
+color from merging unexpectedly. The merged shape is a (possibly compound) path placed where the new stroke was,
+and the stroke plus merge is one undo step.
+
+## Erasing paint (addendum)
+In Split strokes mode the Eraser treats Paint Brush shapes as paint. The eraser positions become a round-tipped
+band (`eraserSweep`, built with the brush outline code), which is subtracted from each overlapping paint shape in
+document space and mapped back through the inverse of the shape's matrix (`erasePaint`). So the shape keeps its
+id, transform and keyframes, even when moved or rotated. Pieces and holes become a compound path, and paint
+erased away completely is removed. Erasing is applied incrementally: each pointer move erases only the new part
+of the sweep (joined to the previous position) into the live project. Cutting is cumulative, so this matches
+erasing the whole sweep at once, and a long stroke costs the same per move as a short one. The whole stroke is
+still one undo step.
+
 ## Consequences
 - Fragments smaller than 0.01 square document units are dropped.
 - Not yet supported: point-editing compound paths, a non-destructive "compound path" grouping, and carrying

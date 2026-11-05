@@ -9,13 +9,14 @@
 //   divide     split along every overlap into separate pieces            each piece: style of the top object there
 import paper from 'paper/dist/paper-core';
 import { identityTransform } from '../domain/defaults';
-import type { EvalObject } from '../domain/evaluator';
+import { brushOutline } from '../domain/brush';
+import { evaluateLayer, type EvalObject } from '../domain/evaluator';
 import { objectSubpaths, segmentsBounds, type Subpath } from '../domain/geometry';
 import { newId } from '../domain/ids';
-import { unionRects } from '../domain/math';
+import { invert, unionRects } from '../domain/math';
 import { removeObjects, replaceObject } from '../domain/ops';
-import type { PathObject, SceneObject } from '../domain/schema';
-import { subpathsToPaper, type PaperShape } from './paperAdapter';
+import type { BrushSample, PathObject, Project, SceneObject } from '../domain/schema';
+import { segmentsToPaper, subpathsToPaper, type PaperShape } from './paperAdapter';
 import { frameObjects } from './scene';
 import { commit, getState, store, toast, type AppState } from './state';
 
@@ -147,4 +148,80 @@ export function combineSelection(op: CombineOp): boolean {
   const ok = commit(meta.command, (p) => removeObjects(replaceObject(p, r.anchor.source.id, r.objects as SceneObject[]), others), ids);
   if (ok) store.set({ selection: ids, activeLayerId: r.anchor.layerId });
   return ok;
+}
+
+// ------------------------------------------------------------------ Paint Brush merging
+
+/** Metadata key marking shapes painted with the Paint Brush; only these merge with new paint. */
+export const PAINT_TAG = 'paintBrush';
+
+const samePaint = (a: SceneObject, b: SceneObject) => JSON.stringify(a.style.fill) === JSON.stringify(b.style.fill);
+
+/** True when two outlines share some area (not just a touching edge). */
+function overlaps(a: PaperShape, b: PaperShape): boolean {
+  if (!a.bounds.intersects(b.bounds)) return false;
+  return !isEmpty(a.intersect(b, opts) as PaperShape);
+}
+
+/**
+ * Joins the new paint stroke `id` with every Paint Brush shape it overlaps on the same layer and frame that has
+ * the same fill and opacity (and no animation). The merged shape takes the new stroke's place on top.
+ * Returns null when there is nothing to merge with.
+ */
+export function mergePaint(p: Project, layerId: string, frame: number, id: string): { project: Project; id: string } | null {
+  const layer = p.layers.find((l) => l.id === layerId);
+  if (!layer) return null;
+  const objs = evaluateLayer(layer, frame); // back to front
+  const mine = objs.find((e) => e.source.id === id);
+  if (!mine) return null;
+  const fresh = toPaper(mine);
+  const touching = objs.filter((e) => e !== mine
+    && e.source.kind === 'path' && e.source.geometry.closed && e.source.metadata[PAINT_TAG]
+    && e.source.visible && !e.source.locked && !e.source.keyframes.length
+    && samePaint(e.source, mine.source) && Math.abs(e.opacity - mine.opacity) < 1e-6
+    && overlaps(fresh, toPaper(e)));
+  if (!touching.length) return null;
+  const r = combineItems('unite', [...touching, mine]);
+  if ('reason' in r || !r.objects.length) return null;
+  const merged: PathObject = { ...r.objects[0], name: 'Paint', metadata: { [PAINT_TAG]: '1' } };
+  const project = removeObjects(replaceObject(p, id, [merged]), touching.map((e) => e.source.id));
+  return { project, id: merged.id };
+}
+
+// ------------------------------------------------------------------ erasing paint
+
+/** True for shapes painted with the Paint Brush (merged or not). */
+export const isPaint = (o: SceneObject): boolean => o.kind === 'path' && o.geometry.closed && !!o.metadata[PAINT_TAG];
+
+/** Area swept by the eraser in document space: a round-tipped band through the eraser positions. */
+export function eraserSweep(circles: { x: number; y: number; r: number }[]): PaperShape | null {
+  if (!circles.length) return null;
+  const samples: BrushSample[] = circles.map((c) => [c.x, c.y, 0.5, 0, 0, 0]);
+  const settings = { size: circles[0].r * 2, smoothing: 0, cap: 'round' as const, pressure: { enabled: false, min: 1, max: 1 }, tilt: { enabled: false, response: 0 } };
+  const sweep = segmentsToPaper(brushOutline(samples, settings, false, false), true);
+  sweep.fillRule = 'nonzero';
+  return sweep;
+}
+
+/**
+ * Cuts the eraser sweep out of a Paint Brush shape, keeping its id, style, transform and animation.
+ * Returns 'unchanged' when they don't overlap and null when nothing is left.
+ */
+export function erasePaint(eo: EvalObject, sweep: PaperShape): PathObject | null | 'unchanged' {
+  const o = eo.source as PathObject;
+  const shape = toPaper(eo);
+  if (!overlaps(shape, sweep)) return 'unchanged';
+  const rest = shape.subtract(sweep, opts) as PaperShape;
+  if (isEmpty(rest)) return null;
+  const [a, b, c, d, tx, ty] = invert(eo.matrix);
+  rest.transform(new paper.Matrix(a, b, c, d, tx, ty)); // back to the object's own coordinates
+  const subs = toSubpaths(rest);
+  if (!subs.length) return null;
+  const [first, ...more] = subs;
+  return {
+    ...o,
+    style: { ...o.style, fillRule: 'evenodd' },
+    geometry: { segments: first.segments, closed: true, ...(more.length ? { subpaths: more } : {}) },
+    brush: null, // erased paint is a plain filled shape from now on
+  };
 }

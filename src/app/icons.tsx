@@ -2,7 +2,9 @@
 const P: Record<string, string> = {
   select: 'M5 3l13 8-6 1.5L9 19z',
   transform: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5M9 9h6v6H9z',
-  brush: 'M18.5 3.5a2.1 2.1 0 013 3L12 16l-3.5-3.5zM8 14.5c-2.5 0-4 1.5-4 4 0 .9-.6 1.6-1.5 2 2.8.8 7.5.3 7.5-3.5z',
+  // Pencil: the Brush tool draws crisp, pressure-sensitive strokes, so it is shown as a pencil.
+  brush: 'M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4zM14.5 5.5l4 4M4 16l4 4',
+  paint: 'M18.5 3.5a2.1 2.1 0 013 3L12 16l-3.5-3.5zM8 14.5c-2.5 0-4 1.5-4 4 0 .9-.6 1.6-1.5 2 2.8.8 7.5.3 7.5-3.5z',
   eraser: 'M16 3.5l5 5-10 10H7l-4-4zM7 18.5h14M12.5 7l5 5',
   shape: 'M3 3h9v9H3zM17 12.5a4.5 4.5 0 110 9 4.5 4.5 0 010-9z',
   pen: 'M12 19l7-7 3 3-7 7zM18 13l-1.5-7.5L2 2l3.5 14.5L13 18M2 2l7.6 7.6M11 13a2 2 0 100-4 2 2 0 000 4z',

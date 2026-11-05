@@ -143,6 +143,52 @@ function TextEditorFields({ t, onChange }: { t: TextData; onChange: (patch: Part
 
 // ------------------------------------------------------------------ tool sections
 
+/** Settings for the Brush (stroke color) and Paint Brush (fill color, merging) tools. */
+function BrushOptions({ kind }: { kind: 'brush' | 'paint' }) {
+  const { o, fill, stroke } = useApp((st) => ({ o: st.toolOptions, fill: st.fill, stroke: st.stroke }));
+  const b = o[kind];
+  const paint = kind === 'paint';
+  return (
+    <Section title={paint ? 'Paint Brush' : 'Brush'} icon={kind}>
+      {paint
+        ? <PaintField label="Color (fill swatch)" paint={fill} onChange={(fill) => store.set({ fill })} allowNone={false} />
+        : <PaintField label="Color (stroke swatch)" paint={stroke} onChange={(stroke) => store.set({ stroke })} allowNone={false} />}
+      <div className="grid2">
+        <NumberField label="Base size" scrubLabel="Size" value={b.size} min={0.5} max={500} step={0.5} precision={1} unit="px" onChange={(size) => setToolOptions(kind, { size })} />
+        <NumberField label="Opacity" scrubLabel="Op" value={Math.round(b.opacity * 100)} min={1} max={100} precision={0} unit="%" onChange={(v) => setToolOptions(kind, { opacity: v / 100 })} />
+      </div>
+      <Field label={`Smoothing · ${b.smoothing}`}>
+        <input type="range" min={0} max={100} value={b.smoothing} aria-label="Smoothing" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setToolOptions(kind, { smoothing: Number(e.target.value) })} />
+      </Field>
+      <Field label="Cap">
+        <Seg label="Brush cap" value={b.cap} onChange={(cap) => setToolOptions(kind, { cap })} options={[{ value: 'round', label: 'Round', title: 'Round ends', tip: 'Brush strokes start and end with a rounded tip.' }, { value: 'butt', label: 'Flat', title: 'Flat ends', tip: 'Brush strokes start and end square.' }]} />
+      </Field>
+      <Check label="Pressure sensitivity" checked={b.pressure.enabled} onChange={(enabled) => setToolOptions(kind, { pressure: { ...b.pressure, enabled } })} />
+      {b.pressure.enabled && (
+        <div className="grid2">
+          <NumberField label="Minimum width at light pressure" scrubLabel="Min" value={Math.round(b.pressure.min * 100)} min={0} max={100} precision={0} unit="%" onChange={(v) => setToolOptions(kind, { pressure: { ...b.pressure, min: v / 100 } })} />
+          <NumberField label="Maximum width at full pressure" scrubLabel="Max" value={Math.round(b.pressure.max * 100)} min={0} max={100} precision={0} unit="%" onChange={(v) => setToolOptions(kind, { pressure: { ...b.pressure, max: v / 100 } })} />
+        </div>
+      )}
+      <Check label="Tilt affects width" checked={b.tilt.enabled} onChange={(enabled) => setToolOptions(kind, { tilt: { ...b.tilt, enabled } })} />
+      {b.tilt.enabled && (
+        <Field label={`Angle response · ${Math.round(b.tilt.response * 100)}%`}>
+          <input type="range" min={0} max={100} value={Math.round(b.tilt.response * 100)} aria-label="Tilt angle response" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setToolOptions(kind, { tilt: { ...b.tilt, response: Number(e.target.value) / 100 } })} />
+        </Field>
+      )}
+      {paint && (
+        <>
+          <Check label="Merge with touching paint of the same color" checked={o.paint.merge} onChange={(merge) => setToolOptions('paint', { merge })} />
+          <p className="hint">{o.paint.merge
+            ? 'Overlapping strokes of the same color join into one filled shape, so you can build up, fill in and even paint holes. Other colors paint on top.'
+            : 'Each stroke stays a separate shape.'}</p>
+        </>
+      )}
+      <p className="hint">Pressure and tilt apply only when your pen or Apple Pencil reports them. Mouse strokes use the base size.</p>
+    </Section>
+  );
+}
+
 function ToolSection() {
   const s = useApp((st) => ({ tool: activeTool(st), o: st.toolOptions, fill: st.fill, stroke: st.stroke, ss: st.strokeStyle, zoom: st.viewport.zoom }));
   const setStyle = (patch: Partial<Style>) => {
@@ -152,48 +198,19 @@ function ToolSection() {
   };
   const swatchStyle = { fill: s.fill, stroke: s.stroke, ...s.ss };
   switch (s.tool) {
-    case 'brush': {
-      const b = s.o.brush;
-      return (
-        <Section title="Brush" icon="brush">
-          <PaintField label="Color (stroke swatch)" paint={s.stroke} onChange={(stroke) => store.set({ stroke })} allowNone={false} />
-          <div className="grid2">
-            <NumberField label="Base size" scrubLabel="Size" value={b.size} min={0.5} max={500} step={0.5} precision={1} unit="px" onChange={(size) => setToolOptions('brush', { size })} />
-            <NumberField label="Opacity" scrubLabel="Op" value={Math.round(b.opacity * 100)} min={1} max={100} precision={0} unit="%" onChange={(v) => setToolOptions('brush', { opacity: v / 100 })} />
-          </div>
-          <Field label={`Smoothing · ${b.smoothing}`}>
-            <input type="range" min={0} max={100} value={b.smoothing} aria-label="Smoothing" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setToolOptions('brush', { smoothing: Number(e.target.value) })} />
-          </Field>
-          <Field label="Cap">
-            <Seg label="Brush cap" value={b.cap} onChange={(cap) => setToolOptions('brush', { cap })} options={[{ value: 'round', label: 'Round', title: 'Round ends', tip: 'Brush strokes start and end with a rounded tip.' }, { value: 'butt', label: 'Flat', title: 'Flat ends', tip: 'Brush strokes start and end square.' }]} />
-          </Field>
-          <Check label="Pressure sensitivity" checked={b.pressure.enabled} onChange={(enabled) => setToolOptions('brush', { pressure: { ...b.pressure, enabled } })} />
-          {b.pressure.enabled && (
-            <div className="grid2">
-              <NumberField label="Minimum width at light pressure" scrubLabel="Min" value={Math.round(b.pressure.min * 100)} min={0} max={100} precision={0} unit="%" onChange={(v) => setToolOptions('brush', { pressure: { ...b.pressure, min: v / 100 } })} />
-              <NumberField label="Maximum width at full pressure" scrubLabel="Max" value={Math.round(b.pressure.max * 100)} min={0} max={100} precision={0} unit="%" onChange={(v) => setToolOptions('brush', { pressure: { ...b.pressure, max: v / 100 } })} />
-            </div>
-          )}
-          <Check label="Tilt affects width" checked={b.tilt.enabled} onChange={(enabled) => setToolOptions('brush', { tilt: { ...b.tilt, enabled } })} />
-          {b.tilt.enabled && (
-            <Field label={`Angle response · ${Math.round(b.tilt.response * 100)}%`}>
-              <input type="range" min={0} max={100} value={Math.round(b.tilt.response * 100)} aria-label="Tilt angle response" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setToolOptions('brush', { tilt: { ...b.tilt, response: Number(e.target.value) / 100 } })} />
-            </Field>
-          )}
-          <p className="hint">Pressure and tilt apply only when your pen or Apple Pencil reports them. Mouse strokes use the base size.</p>
-        </Section>
-      );
-    }
+    case 'brush':
+    case 'paint':
+      return <BrushOptions kind={s.tool} />;
     case 'eraser': {
       const e = s.o.eraser;
       return (
         <Section title="Eraser" icon="eraser">
           <NumberField label="Size" scrubLabel="Size" value={e.size} min={1} max={500} precision={0} unit="px" onChange={(size) => setToolOptions('eraser', { size })} />
           <Field label="Behavior">
-            <Seg label="Eraser behavior" value={e.mode} onChange={(mode) => setToolOptions('eraser', { mode })} options={[{ value: 'split', label: 'Split strokes', title: 'Split strokes', tip: 'Cut brush strokes where the eraser passes, keeping the rest.' }, { value: 'delete', label: 'Delete objects', title: 'Delete objects', tip: 'Remove any object the eraser touches.' }]} />
+            <Seg label="Eraser behavior" value={e.mode} onChange={(mode) => setToolOptions('eraser', { mode })} options={[{ value: 'split', label: 'Split strokes', title: 'Split strokes', tip: 'Cut brush strokes and rub out Paint Brush paint where the eraser passes, keeping the rest.' }, { value: 'delete', label: 'Delete objects', title: 'Delete objects', tip: 'Remove any object the eraser touches.' }]} />
           </Field>
           <Check label="Erase on all layers" checked={e.allLayers} onChange={(allLayers) => setToolOptions('eraser', { allLayers })} />
-          <p className="hint">{e.mode === 'split' ? 'Cuts brush strokes where you sweep. Shapes, text and images are not affected — use Delete objects for those.' : 'Removes any object the eraser touches.'} Pixel erasing of imported images isn’t available in this version.</p>
+          <p className="hint">{e.mode === 'split' ? 'Cuts brush strokes and rubs out Paint Brush paint where you sweep. Shapes, pen paths, text and images are not affected — use Delete objects for those.' : 'Removes any object the eraser touches.'} Pixel erasing of imported images isn’t available in this version.</p>
         </Section>
       );
     }

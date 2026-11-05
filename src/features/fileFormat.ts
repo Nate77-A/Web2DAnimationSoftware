@@ -47,9 +47,10 @@ export async function buildProjectFile(project: Project): Promise<Blob> {
 export async function readProjectFile(file: File): Promise<Project> {
   if (file.size > MAX_FILE_BYTES) throw new ProjectLoadError(`File is too large (${(file.size / 1048576).toFixed(0)} MB).`);
   let zip: JSZip;
-  try { zip = await JSZip.loadAsync(await file.arrayBuffer()); } catch { throw new ProjectLoadError('This is not a valid .anims project file (not a ZIP archive).'); }
+  const notProject = () => new ProjectLoadError(`“${file.name}” is not an Animation Studio project. Choose a ${FILE_EXTENSION} file saved with File › Save.`);
+  try { zip = await JSZip.loadAsync(await file.arrayBuffer()); } catch { throw notProject(); }
   const entry = zip.file('manifest.json');
-  if (!entry) throw new ProjectLoadError('The project file has no manifest.json.');
+  if (!entry) throw notProject();
   let raw: unknown;
   try { raw = JSON.parse(await entry.async('string')); } catch { throw new ProjectLoadError('manifest.json is not valid JSON.'); }
   const m = manifestSchema.safeParse(raw);
@@ -78,7 +79,9 @@ export function pickProjectFile(): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = `${FILE_EXTENSION},.zip,application/zip`;
+    // No `accept` filter on purpose: macOS file dialogs (Chrome and Safari) map it to system file types,
+    // don't recognise the custom .anims extension, and grey out the app's own saved projects. Any file can
+    // be chosen; readProjectFile validates it fully and explains when it isn't a project.
     input.onchange = () => resolve(input.files?.[0] ?? null);
     input.addEventListener('cancel', () => resolve(null));
     input.click();

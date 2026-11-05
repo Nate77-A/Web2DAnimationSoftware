@@ -210,7 +210,7 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 .stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--pasteboard); touch-action: none; user-select: none; -webkit-user-select: none; }
 .stage:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); border-radius: 0; }
 .stage-canvas { position: absolute; inset: 0; display: block; }
-.stage.tool-brush, .stage.tool-eraser { cursor: crosshair; }
+.stage.tool-brush, .stage.tool-paint, .stage.tool-eraser { cursor: crosshair; }
 .stage.tool-pen, .stage.tool-shape, .stage.tool-bucket, .stage.tool-eyedropper { cursor: crosshair; }
 .stage.tool-text { cursor: text; }
 .stage.tool-hand { cursor: grab; }

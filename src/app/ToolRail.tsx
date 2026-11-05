@@ -24,7 +24,7 @@ export function ToolRail() {
     <nav className="rail" role="toolbar" aria-orientation="vertical" aria-label="Tools" ref={railRef} onKeyDown={onKey}>
       {TOOL_LIST.map((t, i) => (
         <span key={t.id} style={{ display: 'contents' }}>
-          {(i === 2 || i === 8) && <div className="rail-sep" aria-hidden="true" />}
+          {i > 0 && (t.id === 'brush' || t.id === 'eyedropper') && <div className="rail-sep" aria-hidden="true" />}
           <button
             className="icon-btn tool"
             aria-label={`${t.label} (${t.shortcut})`}

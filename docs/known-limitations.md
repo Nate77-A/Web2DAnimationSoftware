@@ -2,6 +2,7 @@
 
 - Eraser splits brush strokes or deletes objects; pixel erasing of bitmaps is not available.
 - Paint Bucket fills closed vector shapes only.
+- The Eraser rubs out brush strokes and Paint Brush paint only; shapes, pen paths and combined shapes can only be removed whole (Delete mode).
 - Combining shapes creates a new object as it looks on the current frame: keyframes and tweens of the originals are not carried over. Combined shapes with holes or several pieces can't be point-edited yet.
 - Editing a shape's points turns it into a plain path, so its shape options (corner radius, polygon sides) no longer apply.
 - Brush strokes are edited along a fitted centerline; the stroke is re-drawn along it, so very fine wobbles in the original stroke are smoothed out by the first edit.

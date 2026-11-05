@@ -114,7 +114,10 @@ def({ id: 'brush.larger', label: 'Increase Tool Size', help: 'Make the brush or 
 function resizeTool(f: number) {
   const s = getState();
   if (s.tool === 'eraser') store.set({ toolOptions: { ...s.toolOptions, eraser: { ...s.toolOptions.eraser, size: Math.max(1, Math.min(500, Math.round(s.toolOptions.eraser.size * f))) } } });
-  else store.set({ toolOptions: { ...s.toolOptions, brush: { ...s.toolOptions.brush, size: Math.max(0.5, Math.min(500, +(s.toolOptions.brush.size * f).toFixed(1))) } } });
+  else {
+    const key = s.tool === 'paint' ? 'paint' : 'brush';
+    store.set({ toolOptions: { ...s.toolOptions, [key]: { ...s.toolOptions[key], size: Math.max(0.5, Math.min(500, +(s.toolOptions[key].size * f).toFixed(1))) } } });
+  }
 }
 
 /** Tooltip notes for the frame-rate presets. */

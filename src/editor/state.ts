@@ -8,7 +8,7 @@ import type { Rect } from '../domain/math';
 import type { TimelineClip } from '../domain/timelineClipboard';
 import { createStore, useSelector } from './store';
 
-export type ToolId = 'select' | 'transform' | 'brush' | 'eraser' | 'shape' | 'pen' | 'text' | 'bucket' | 'eyedropper' | 'hand' | 'zoom';
+export type ToolId = 'select' | 'transform' | 'brush' | 'paint' | 'eraser' | 'shape' | 'pen' | 'text' | 'bucket' | 'eyedropper' | 'hand' | 'zoom';
 
 /** Command record: deterministic do/undo payloads (structurally shared project snapshots), no closures. */
 export interface Command {
@@ -45,6 +45,8 @@ export interface OverlayState {
 
 export interface ToolOptions {
   brush: BrushSettings & { opacity: number };
+  /** Paint Brush: paints with the fill color; `merge` joins strokes with touching paint of the same color. */
+  paint: BrushSettings & { opacity: number; merge: boolean };
   eraser: { size: number; mode: 'split' | 'delete'; allLayers: boolean };
   shape: { type: ShapeType; sides: number; cornerRadius: number };
   pen: { showHandles: boolean };
@@ -126,6 +128,7 @@ export function initialState(project: Project = createProject()): AppState {
     transientTool: null,
     toolOptions: {
       brush: { ...defaultBrush(), opacity: 1 },
+      paint: { ...defaultBrush(), size: 30, opacity: 1, merge: true },
       eraser: { size: 24, mode: 'split', allLayers: false },
       shape: { type: 'rect', sides: 6, cornerRadius: 0 },
       pen: { showHandles: true },

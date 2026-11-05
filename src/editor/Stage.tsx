@@ -361,7 +361,7 @@ function Overlay() {
       {o.pen && <PenPreview pen={o.pen} toS={toS} showHandles={s.penHandles} />}
       {pe && <PathEditOverlay pe={pe} toS={toS} />}
       {o.eraser && s.tool === 'eraser' && (() => { const c = toS(o.eraser.pos); return <circle cx={c[0]} cy={c[1]} r={o.eraser.r * v.zoom} className="tool-cursor" />; })()}
-      {o.brushCursor && s.tool === 'brush' && (() => { const c = toS(o.brushCursor.pos); return <circle cx={c[0]} cy={c[1]} r={Math.max(1.5, o.brushCursor.r * v.zoom)} className="tool-cursor" />; })()}
+      {o.brushCursor && (s.tool === 'brush' || s.tool === 'paint') && (() => { const c = toS(o.brushCursor.pos); return <circle cx={c[0]} cy={c[1]} r={Math.max(1.5, o.brushCursor.r * v.zoom)} className="tool-cursor" />; })()}
     </svg>
   );
 }
